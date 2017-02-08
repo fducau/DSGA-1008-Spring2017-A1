@@ -38,17 +38,9 @@ if args.cuda:
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
-# train_loader = torch.utils.data.DataLoader(
-#     datasets.MNIST('../data', train=True, download=True,
-#                    transform=transforms.Compose([
-#                        transforms.ToTensor(),
-#                        transforms.Normalize((0.1307,), (0.3081,))
-#                    ])),
-#     batch_size=args.batch_size, shuffle=True, **kwargs)
 
 print('loading data!')
 trainset_labeled = pickle.load(open("../data/train_labeled.p", "rb"))
-# trainset_unlabeled = pickle.load(open("train_unlabeled.p", "rb"))
 
 train_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
 
@@ -56,19 +48,9 @@ transform = transforms.Compose([transforms.ToTensor(),
                                transforms.Normalize((0.1307,), (0.3081,))
                                 ])
 
-test_loader = torch.utils.data.DataLoader(datasets.MNIST('../data', train=False,
-                                                         transform=transform),
-                                          batch_size=args.batch_size,
+testset = pickle.load(open('../data/test.p'))
+test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
                                           shuffle=True, **kwargs)
-
-# test_loader = torch.utils.data.DataLoader( 
-# datasets.MNIST('../data', train=False,
-#                   transform=transforms.Compose([transforms.ToTensor(),
-#                                                transforms.Normalize((0.1307,), (0.3081,))
-#                                                 ])),
-#                   batch_size=args.batch_size,
-#                   shuffle=True, **kwargs)
-
 
 class Net(nn.Module):
     def __init__(self):
