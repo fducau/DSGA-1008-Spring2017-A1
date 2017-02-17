@@ -7,13 +7,12 @@ import matplotlib.gridspec as gridspec
 import os
 from torch.autograd import Variable
 from tensorflow.examples.tutorials.mnist import input_data
-
 import torch.nn as nn
 import torch.nn.functional as F
-
 import pickle
 
-
+cuda = torch.cuda.is_available()
+kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 
 mnist = input_data.read_data_sets('../../MNIST_data', one_hot=True)
 mb_size = 32
@@ -24,115 +23,63 @@ h_dim = 128
 cnt = 0
 lr = 1e-3
 
+train_batch_size = 64
+val_batch_size = 64
+epochs = 10
+
 
 print('loading data!')
 data_path = '../data/'
 trainset_labeled = pickle.load(open(data_path + "train_labeled.p", "rb"))
 validset = pickle.load(open(data_path + "validation.p", "rb"))
 
+
+##################################
+# Define Networks
+##################################
 # Encoder
-#Q = torch.nn.Sequential(
-#    torch.nn.Linear(X_dim, h_dim),
-#    torch.nn.ReLU(),
-#    torch.nn.Linear(h_dim, z_dim)
-#)
 class Q_net(nn.Module):
     def __init__(self):
         super(Q_net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
+        self.lin1 = nn.Linear(X_dim, h_dim)
+        self.lin2 = nn.Linear(h_dim, z_dim)
 
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = F.relu(self.fc2(x))
-        return F.log_softmax(x)
+        x = self.lin1(x)
+        x = F.relu(x)
+        x = self.lin2(x)
+        return x
 
 # Decoder
-#P = torch.nn.Sequential(
-#    torch.nn.Linear(z_dim, h_dim),
-#    torch.nn.ReLU(),
-#    torch.nn.Linear(h_dim, X_dim),
-#    torch.nn.Sigmoid()
-# )
 class P_net(nn.Module):
     def __init__(self):
         super(P_net, self).__init__()
         self.lin1 = nn.Linear(z_dim, h_dim)
         self.lin2 = nn.Linear(h_dim, X_dim)
-        # self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        # self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        # self.conv2_drop = nn.Dropout2d()
-        # self.fc1 = nn.Linear(320, 50)
-        # self.fc2 = nn.Linear(50, 10)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
         x = self.lin2(x)
         return F.sigmoid(x)
-        # x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        # x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        # x = x.view(-1, 320)
-        # x = F.relu(self.fc1(x))
-        # x = F.dropout(x, training=self.training)
-        # x = F.relu(self.fc2(x))
-        # return F.log_softmax(x)
-
 
 # Discriminator
-# D = torch.nn.Sequential(
-#     torch.nn.Linear(z_dim, h_dim),
-#     torch.nn.ReLU(),
-#     torch.nn.Linear(h_dim, 1),
-#     torch.nn.Sigmoid()
-# )
-
 class D_net(nn.Module):
     def __init__(self):
         super(D_net, self).__init__()
         self.lin1 = nn.Linear(z_dim, h_dim)
         self.lin2 = nn.Linear(h_dim, 1)
-        # self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        # self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        # self.conv2_drop = nn.Dropout2d()
-        # self.fc1 = nn.Linear(320, 50)
-        # self.fc2 = nn.Linear(50, 10)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
         x = self.lin2(x)
         return F.sigmoid(x)
-        # x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        # x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        # x = x.view(-1, 320)
-        # x = F.relu(self.fc1(x))
-        # x = F.dropout(x, training=self.training)
-        # x = F.relu(self.fc2(x))
-        # return F.log_softmax(x)
-
-
-
-
-
-
-def reset_grad():
-    Q.zero_grad()
-    P.zero_grad()
-    D.zero_grad()
 
 
 def sample_X(size, include_y=False):
     X, y = mnist.train.next_batch(size)
     X = Variable(torch.from_numpy(X))
-
 
     if include_y:
         y = np.argmax(y, axis=1).astype(np.int)
@@ -141,20 +88,21 @@ def sample_X(size, include_y=False):
 
     return X
 
+def reset_grads(models):
+    for m in models:
+        m.reset_grad()
 
-Q = Q_net().cuda()
-P = P_net().cuda()
-D = D_net().cuda()
+def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
+    Q.train()
+    P.train()
+    D.train()
 
-Q_solver = optim.Adam(Q.parameters(), lr=lr)
-P_solver = optim.Adam(P.parameters(), lr=lr)
-D_solver = optim.Adam(D.parameters(), lr=lr)
+    for batch_idx, (X, target) in enumerate(data_loader):
+        if cuda:
+            X, target = X.cuda(), target.cuda()
+        X, target = Variable(X), Variable(target)
 
-for it, (X, y) in enumerate(train_loader):
-    X = sample_X(mb_size).cuda()
-    #X.cuda()
-
-    """ Reconstruction phase """
+    # Reconstruction phase
     z_sample = Q(X)
     X_sample = P(z_sample)
 
@@ -163,11 +111,17 @@ for it, (X, y) in enumerate(train_loader):
     recon_loss.backward()
     P_solver.step()
     Q_solver.step()
-    reset_grad()
+
+    P.reset_grad()
+    Q.reset_grad()
+    D.reset_grad()
+    # reset_grads([P, Q, D])
 
     """ Regularization phase """
     # Discriminator
-    z_real = Variable(torch.randn(mb_size, z_dim)).cuda()
+    z_real = Variable(torch.randn(train_batch_size, z_dim))
+    if cuda:
+        z_real.cuda()
 
     z_fake = Q(X)
 
@@ -178,7 +132,11 @@ for it, (X, y) in enumerate(train_loader):
 
     D_loss.backward()
     D_solver.step()
-    reset_grad()
+
+    P.reset_grad()
+    Q.reset_grad()
+    D.reset_grad()
+    # reset_grads([P, Q, D])
 
     # Generator
     z_fake = Q(X)
@@ -188,20 +146,62 @@ for it, (X, y) in enumerate(train_loader):
 
     G_loss.backward()
     Q_solver.step()
-    reset_grad()
+
+    P.reset_grad()
+    Q.reset_grad()
+    D.reset_grad()
+    # reset_grads([P, Q, D])
+    return D_loss, G_loss, recon_loss
+
+
+##################################
+# Create and initialize Networks
+##################################
+if cuda:
+    Q = Q_net().cuda()
+    P = P_net().cuda()
+    D = D_net().cuda()
+else:
+    Q = Q_net()
+    P = P_net()
+    D = D_net()
+
+Q_solver = optim.Adam(Q.parameters(), lr=lr)
+P_solver = optim.Adam(P.parameters(), lr=lr)
+D_solver = optim.Adam(D.parameters(), lr=lr)
+
+
+##################################
+# Data loaders
+##################################
+print('loading data!')
+data_path = '../../data/'
+trainset_labeled = pickle.load(open(data_path + "train_labeled.p", "rb"))
+validset = pickle.load(open(data_path + "validation.p", "rb"))
+
+train_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
+valid_loader = torch.utils.data.DataLoader(validset, batch_size=64, shuffle=True)
+
+
+
+
+
+for epoch in range(epochs):
+    D_loss, G_loss, recon_loss = train(P, Q, D, P_solver, Q_solver, D_solver, train_loader)
+
 
     # Print and plot every now and then
-    if it % 1000 == 0:
-        cnt = it / 1000
-        print('Iter-{}; D_loss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
-              .format(it, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
+    if epoch % 100 == 0:
+
+        print('Epoch-{}; D_loss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
+              .format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
 
         samples = P(z_real)
         img = np.array(samples.data[0].tolist()).reshape(28,28)
-        plt.imshow(img)
-        
+        plt.imshow(img, cmap='gray_r')
+
         plt.savefig('out/{}.png'
-                    .format(str(cnt).zfill(3)), bbox_inches='tight')
+                    .format(str(epoch).zfill(3)), bbox_inches='tight')
         plt.close()
 
 
