@@ -11,6 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pickle
 
+mnist = input_data.read_data_sets('../../MNIST_data', one_hot=True)
+
+
 cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 
@@ -30,6 +33,7 @@ epochs = 1000
 print('loading data!')
 data_path = './../data/'
 trainset_labeled = pickle.load(open(data_path + "train_labeled.p", "rb"))
+trainset_unlabeled = pickle.load(open(data_path + "train_unlabeled.p", "rb"))
 validset = pickle.load(open(data_path + "validation.p", "rb"))
 
 
@@ -98,9 +102,12 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
 
     for batch_idx, (X, target) in enumerate(data_loader):
         X.resize_(train_batch_size, X_dim)
+        X, target = Variable(X), Variable(target)
+
+        # X = sample_X(train_batch_size)
+
         if cuda:
             X, target = X.cuda(), target.cuda()
-        X, target = Variable(X), Variable(target)
 
         # Reconstruction phase
         z_sample = Q(X)
@@ -176,7 +183,9 @@ D_solver = optim.Adam(D.parameters(), lr=lr)
 ##################################
 # Data loaders
 ##################################
-train_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
+train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
+train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled, batch_size=64, shuffle=True, **kwargs)
+
 valid_loader = torch.utils.data.DataLoader(validset, batch_size=64, shuffle=True)
 
 
@@ -184,7 +193,10 @@ valid_loader = torch.utils.data.DataLoader(validset, batch_size=64, shuffle=True
 
 
 for epoch in range(epochs):
-    D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver, train_loader)
+    D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
+                                                train_labeled_loader)
+    D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
+                                                train_labeled_loader)
 
 
     # Print and plot every now and then
