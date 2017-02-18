@@ -34,6 +34,8 @@ print('loading data!')
 data_path = './../data/'
 trainset_labeled = pickle.load(open(data_path + "train_labeled.p", "rb"))
 trainset_unlabeled = pickle.load(open(data_path + "train_unlabeled.p", "rb"))
+trainset_unlabeled.train_labels = torch.from_numpy(np.array([-1] * 47000))
+
 validset = pickle.load(open(data_path + "validation.p", "rb"))
 
 
@@ -101,10 +103,13 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
     D.train()
 
     for batch_idx, (X, target) in enumerate(data_loader):
+        X = X * 0.3081 + 0.1307
+
+
         X.resize_(train_batch_size, X_dim)
         X, target = Variable(X), Variable(target)
 
-        # X = sample_X(train_batch_size)
+        #X = sample_X(train_batch_size)
 
         if cuda:
             X, target = X.cuda(), target.cuda()
@@ -112,48 +117,49 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         # Reconstruction phase
         z_sample = Q(X)
         X_sample = P(z_sample)
-    
+
         recon_loss = F.binary_cross_entropy(X_sample, X)
-    
+
         recon_loss.backward()
         P_solver.step()
         Q_solver.step()
-    
+
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
         # reset_grads([P, Q, D])
-    
+
         """ Regularization phase """
         # Discriminator
         z_real = Variable(torch.randn(train_batch_size, z_dim))
         if cuda:
             z_real = z_real.cuda()
-    
+
         z_fake = Q(X)
-    
+
         D_real = D(z_real)
         D_fake = D(z_fake)
-    
+
         D_loss = -torch.mean(torch.log(D_real) + torch.log(1 - D_fake))
-    
+        if D_loss
+
         D_loss.backward()
         D_solver.step()
-    
+
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
         # reset_grads([P, Q, D])
-    
+
         # Generator
         z_fake = Q(X)
         D_fake = D(z_fake)
-    
+
         G_loss = -torch.mean(torch.log(D_fake))
-    
+
         G_loss.backward()
         Q_solver.step()
-    
+
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
@@ -183,7 +189,7 @@ D_solver = optim.Adam(D.parameters(), lr=lr)
 ##################################
 # Data loaders
 ##################################
-train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
+train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=3000, shuffle=True, **kwargs)
 train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled, batch_size=64, shuffle=True, **kwargs)
 
 valid_loader = torch.utils.data.DataLoader(validset, batch_size=64, shuffle=True)
@@ -191,13 +197,11 @@ valid_loader = torch.utils.data.DataLoader(validset, batch_size=64, shuffle=True
 
 
 
-
 for epoch in range(epochs):
     D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
                                                 train_labeled_loader)
-    D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
-                                                train_labeled_loader)
-
+    # D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
+    #                                             train_unlabeled_loader)
 
     # Print and plot every now and then
     if epoch % 100 == 0:
