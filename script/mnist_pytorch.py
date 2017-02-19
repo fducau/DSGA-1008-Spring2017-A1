@@ -1,5 +1,5 @@
 from __future__ import print_function
-from utils import augment_dataset
+from utils import *
 import pickle
 import argparse
 import torch

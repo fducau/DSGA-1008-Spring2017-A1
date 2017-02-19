@@ -1,7 +1,9 @@
-import torch
 import scipy
+from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage import map_coordinates
 import numpy as np
 from numpy.random import uniform
+import torch
 
 
 def augment_dataset(trainset_labeled, b=100, k=2):
@@ -38,9 +40,9 @@ def elastic_transform(img_batch, sigma=4, alpha=34):
     uniform_random_x = uniform(-1, 1, size=img_batch.shape[1:])
     uniform_random_y = uniform(-1, 1, size=img_batch.shape[1:])
 
-    elastic_x = scipy.ndimage.filters.gaussian_filter(alpha * uniform_random_x,
+    elastic_x = gaussian_filter(alpha * uniform_random_x,
                                                       sigma=sigma, mode='constant')
-    elastic_y = scipy.ndimage.filters.gaussian_filter(alpha * uniform_random_y,
+    elastic_y = gaussian_filter(alpha * uniform_random_y,
                                                       sigma=sigma, mode='constant')
     elastic_distortion_x = pos[0] + elastic_x
     elastic_distortion_y = pos[1] + elastic_y
@@ -50,6 +52,6 @@ def elastic_transform(img_batch, sigma=4, alpha=34):
     batch_size = img_batch.shape[0]
 
     for i in range(batch_size):
-        transformed.append(scipy.ndimage.map_coordinates(img_batch[i], elastic, order=1,
-                                                         prefilter=False, mode='reflect'))
+        transformed.append(map_coordinates(img_batch[i], elastic, order=1,
+                                           prefilter=False, mode='reflect'))
     return transformed
