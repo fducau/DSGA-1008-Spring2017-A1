@@ -1,11 +1,11 @@
 from __future__ import print_function
+from utils import augment_dataset
 import pickle
 import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-# from utils import augment_dataset
 from torch.autograd import Variable
 
 

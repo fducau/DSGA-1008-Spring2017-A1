@@ -1,26 +1,15 @@
-import torch
+import scipy
+from scipy import linalg
+from scipy import ndimage
+
+
 import numpy as np
 from numpy.random import uniform
+
+import torch
+
 from scipy.ndimage import map_coordinates
 from scipy.ndimage.filters import gaussian_filter
-
-
-def augment_dataset(train_loader, trainset_labeled, k=2):
-    for i in range(k - 1):
-        augmented_data, augmented_labels = [], []
-        for img_batch, labels in iter(train_loader):
-            augmented_data.extend(elastic_transform(img_batch, sigma=4, alpha=34))
-            augmented_labels.extend(labels)
-
-        augmented_data = np.array(augmented_data)
-        augmented_labels = np.array(augmented_labels)
-        data = np.concatenate((trainset_labeled.train_data.numpy(), augmented_data))
-        labels = np.concatenate((trainset_labeled.train_labels.numpy(), augmented_labels))
-        trainset_labeled.train_data = torch.from_numpy(data)
-        trainset_labeled.train_labels = torch.from_numpy(labels)
-        trainset_labeled.k = data.shape[0]
-
-    return trainset_labeled
 
 
 def elastic_transform(img_batch, sigma=4, alpha=34):
@@ -47,3 +36,25 @@ def elastic_transform(img_batch, sigma=4, alpha=34):
         transformed.append(scipy.ndimage.map_coordinates(img_batch[i][-1, :, :],
                                            elastic, prefilter=False, mode='reflect'))
     return transformed
+
+
+
+
+def augment_dataset(train_loader, trainset_labeled, k=2):
+    for i in range(k - 1):
+        augmented_data, augmented_labels = [], []
+        for batch_idx, (img_batch, labels) in enumerate(iter(train_loader)):
+            if batch_idx * train_loader.batch_size + train_loader.batch_size > train_loader.dataset.k:
+                continue
+            augmented_data.extend(elastic_transform(img_batch, sigma=4, alpha=34))
+            augmented_labels.extend(labels)
+
+        augmented_data = np.array(augmented_data)
+        augmented_labels = np.array(augmented_labels)
+        data = np.concatenate((trainset_labeled.train_data.numpy(), augmented_data))
+        labels = np.concatenate((trainset_labeled.train_labels.numpy(), augmented_labels))
+        trainset_labeled.train_data = torch.from_numpy(data)
+        trainset_labeled.train_labels = torch.from_numpy(labels)
+        trainset_labeled.k = data.shape[0]
+
+    return trainset_labeled

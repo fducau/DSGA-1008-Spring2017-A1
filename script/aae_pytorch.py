@@ -18,16 +18,17 @@ cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 
 mb_size = 32
-z_dim = 2
+z_dim = 12
 X_dim = 784
 y_dim = 10
 h_dim = 128
 cnt = 0
-lr = 1e-3
+lr = 1e-2
+momentum = 0.1
 
-train_batch_size = 64
+train_batch_size = 32
 val_batch_size = 64
-epochs = 1000
+epochs = 500
 
 
 ##################################
@@ -43,10 +44,14 @@ trainset_unlabeled.train_labels = torch.from_numpy(np.array([-1] * 47000))
 validset = pickle.load(open(data_path + "validation.p", "rb"))
 
 
-train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=32, shuffle=True, **kwargs)
-train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled, batch_size=32, shuffle=True, **kwargs)
+train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled,
+                                                   batch_size=train_batch_size,
+                                                   shuffle=True, **kwargs)
+train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
+                                                     batch_size=train_batch_size,
+                                                     shuffle=True, **kwargs)
 
-valid_loader = torch.utils.data.DataLoader(validset, batch_size=32, shuffle=True)
+valid_loader = torch.utils.data.DataLoader(validset, batch_size=train_batch_size, shuffle=True)
 
 
 ##################################
@@ -110,8 +115,11 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
     P.train()
     D.train()
 
-# for epoch in range(1000):
+#for epoch in range(1):
     for batch_idx, (X, target) in enumerate(data_loader):
+        if batch_idx * data_loader.batch_size + data_loader.batch_size > data_loader.dataset.k:
+            continue
+
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
@@ -124,6 +132,7 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         # Check if data has negative values and ignore
         if X.min().data[0] < 0:
             print 'Skipping bad input. '
+            #raise ValueError
             continue
 
         #X = sample_X(train_batch_size)
@@ -146,11 +155,9 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         recon_loss.backward()
         P_solver.step()
         Q_solver.step()
-        # losses.append(recon_loss.data[0])
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
-        # reset_grads([P, Q, D])
 
         """ Regularization phase """
         # Discriminator
@@ -171,7 +178,6 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
-        # reset_grads([P, Q, D])
 
         # Generator
         z_fake = Q(X)
@@ -182,9 +188,9 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         G_loss.backward()
         Q_solver.step()
 
-        P_solver.zero_grad()
-        Q_solver.zero_grad()
-        D_solver.zero_grad()
+        P.zero_grad()
+        Q.zero_grad()
+        D.zero_grad()
 
         if D_loss.data[0] == float('nan'):
             print 'D_loss hurt'
@@ -195,12 +201,32 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         if recon_loss.data[0] == float('nan'):
             print 'recon_loss hurt'
             raise ValueError
+
         samples = P(z_sample)
-        #if epoch % 100 == 0 and batch_idx == 100:
-        #    print('Epoch: {} D: {} G: {} R: {}'.format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
-    # reset_grads([P, Q, D])
-    # return 0, 0, recon_loss, 0
-    return D_loss, G_loss, recon_loss, samples
+        xsample = X
+        # if batch_idx == 100:
+        #     print('Epoch: {} D: {} G: {} R: {}'.format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
+
+    return D_loss, G_loss, recon_loss, (samples.data[0], xsample.data[0])
+
+def report_loss(D_loss, G_loss, recon_loss, samples=None):
+        print('Epoch-{}; D_loss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
+              .format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
+
+        if samples is not None:
+            img = np.array(samples[0].tolist()).reshape(28, 28)
+            plt.imshow(img, cmap='hot')
+
+            plt.savefig('out/{}.png'
+                        .format(str(epoch).zfill(3)), bbox_inches='tight')
+
+            img = np.array(samples[1].tolist()).reshape(28, 28)
+            plt.imshow(img, cmap='hot')
+
+            plt.savefig('out/{}_orig.png'
+                        .format(str(epoch).zfill(3)), bbox_inches='tight')
+
+            plt.close()
 
 
 ##################################
@@ -215,30 +241,22 @@ else:
     P = P_net()
     D = D_net()
 
-Q_solver = optim.Adam(Q.parameters(), lr=lr)
-P_solver = optim.Adam(P.parameters(), lr=lr)
-D_solver = optim.Adam(D.parameters(), lr=lr)
-
+Q_solver = optim.Adam(Q.parameters(), lr=lr/100.)
+P_solver = optim.Adam(P.parameters(), lr=lr/100.)
+D_solver = optim.Adam(D.parameters(), lr=lr/100.)
 
 for epoch in range(epochs):
-    # D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
-    #                                             train_labeled_loader)
     D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
-                                                train_unlabeled_loader)
+                                                train_labeled_loader)
+    D_loss_u, G_loss_u, recon_loss_u, samples_u = train(P, Q, D, P_solver, Q_solver, D_solver,
+                                                        train_unlabeled_loader)
 
     # Print and plot every now and then
-    if epoch % 100 == 0:
-
-        print('Epoch-{}; D_loss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
-              .format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
-
-        img = np.array(samples.data[0].tolist()).reshape(28,28)
-        plt.imshow(img, cmap='hot')
-
-        plt.savefig('out/{}.png'
-                    .format(str(epoch).zfill(3)), bbox_inches='tight')
-        plt.close()
-
+    if epoch % 5 == 0:
+        print('Loss in Labeled')
+        report_loss(D_loss, G_loss, recon_loss, samples)
+        print('Loss in UNLabeled')
+        report_loss(D_loss_u, G_loss_u, recon_loss_u)
 
 
 #        gs = gridspec.GridSpec(4, 4)
