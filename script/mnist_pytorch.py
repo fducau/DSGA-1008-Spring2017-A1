@@ -42,8 +42,8 @@ kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
+        self.conv1 = nn.Conv2d(1, 100, kernel_size=5)
+        self.conv2 = nn.Conv2d(100, 20, kernel_size=5)
         self.conv2_drop = nn.Dropout2d()
         self.fc1 = nn.Linear(320, 50)
         self.fc2 = nn.Linear(50, 10)
@@ -100,6 +100,16 @@ def main():
     trainset_labeled = pickle.load(open(data_path + "train_labeled.p", "rb"))
     validset = pickle.load(open(data_path + "validation.p", "rb"))
 
+    if args.elastic_augment:
+        print('augmenting dataset!')
+        trainset_labeled = augment_dataset(trainset_labeled, 100, 2)
+
+        print('augmented dataset to size: {}'.format(trainset_labeled.k))
+        filename = 'train_augmented.p'
+        print('saving it to {}{}'.format(data_path, filename))
+        output = open(data_path + filename, 'wb')
+        pickle.dump(trainset_labeled, output)
+
     train_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
     valid_loader = torch.utils.data.DataLoader(validset, batch_size=64, shuffle=True)
 
@@ -108,17 +118,6 @@ def main():
         model.cuda()
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-
-    if args.elastic_augment:
-        print('augmenting dataset!')
-        train_augmented = augment_dataset(train_loader, trainset_labeled, 5)
-        train_loader = torch.utils.data.DataLoader(train_augmented, batch_size=64,
-                                                   shuffle=True, **kwargs)
-        print('augmented dataset to size: {}'.format(len(train_loader.dataset)))
-        filename = 'train_augmented.p'
-        print('saving it to {}{}'.format(data_path, filename))
-        output = open(data_path + filename, 'wb')
-        pickle.dump(train_augmented, output)
 
     for epoch in range(1, args.epochs + 1):
         train(model, optimizer, epoch, train_loader)
