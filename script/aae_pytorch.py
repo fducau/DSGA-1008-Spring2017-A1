@@ -26,8 +26,8 @@ cnt = 0
 lr = 1e-2
 momentum = 0.1
 
-train_batch_size = 32
-valid_batch_size = 100
+train_batch_size = 50
+valid_batch_size = 50
 epochs = 500
 
 
@@ -98,20 +98,25 @@ class D_net(nn.Module):
         return F.sigmoid(x)
 
 # Discriminator
-class Classifier(nn.Module):
+class MLP_net(nn.Module):
     def __init__(self):
-        super(D_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim, 100)
-        self.lin2 = nn.Linear(100, 50)
-        self.lin3 = nn.Linear(50, 10)
+        super(MLP_net, self).__init__()
+        self.lin1 = nn.Linear(z_dim, 10)
+        self.lin2 = nn.Linear(10, 10)
+        self.lin3 = nn.Linear(48, 24)
+        self.lin4 = nn.Linear(24,10)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
-        x = self.lin2(x)
-        x = F.relu(x)
-        x = self.lin3(x)
-        return F.softmax(x)
+        x = F.dropout(x, training=self.training)
+        #x = self.lin2(x)
+        #x = F.relu(x)
+        #x = F.dropout(x, training=self.training)
+        #x = self.lin3(x)
+        #x = F.relu(x)
+        #x = self.lin4(x)
+        return F.log_softmax(x)
 
 
 
@@ -127,12 +132,52 @@ def sample_X(size, include_y=False):
     return X
 
 
-def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
+def train_MLP(MLP, data_loader, MLP_solver):
+    MLP.train()
+    for batch_idx, (X, target) in enumerate(data_loader):
+        if batch_idx * data_loader.batch_size + data_loader.batch_size > data_loader.dataset.k:
+            continue
+        MLP.zero_grad()
+        X, target = Variable(X), Variable(target)
+        if cuda:
+            X, target = X.cuda(), target.cuda()
+        target = target.resize(data_loader.batch_size)
+        output = MLP(X)
+        loss = F.nll_loss(output, target)
+        loss.backward()
+        MLP_solver.step()
+    return loss
+
+def test_MLP(MLP, data_loader):
+    MLP.eval()
+    test_loss = 0
+    correct = 0
+    for X, target in data_loader:
+        X, target = Variable(X), Variable(target)
+        if cuda:
+            X, target = X.cuda(), target.cuda()
+        target = target.resize(data_loader.batch_size)
+        output = MLP(X)
+        test_loss += F.nll_loss(output, target).data[0]
+
+        pred = output.data.max(1)[1]  # get the index of the max log-probability
+        correct += pred.eq(target.data).cpu().sum()
+
+    test_loss /= len(data_loader)  # loss function already averages over batch size
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
+        test_loss, correct, len(data_loader.dataset),
+        100. * correct / len(data_loader.dataset)))
+
+
+
+
+def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solver=None):
     Q.train()
     P.train()
     D.train()
+    if MLP is not None:
+        MLP.train()
 
-#for epoch in range(1):
     for batch_idx, (X, target) in enumerate(data_loader):
         if batch_idx * data_loader.batch_size + data_loader.batch_size > data_loader.dataset.k:
             continue
@@ -140,6 +185,8 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
+        if MLP is not None:
+            MLP.train()
 
         X = X * 0.3081 + 0.1307
 
@@ -172,10 +219,12 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         recon_loss.backward()
         P_solver.step()
         Q_solver.step()
+
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
-
+        if MLP is not None:
+            MLP.train()
         """ Regularization phase """
         # Discriminator
         z_real = Variable(torch.randn(train_batch_size, z_dim))
@@ -195,7 +244,8 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
-
+        if MLP is not None:
+            MLP.train()
         # Generator
         z_fake = Q(X)
         D_fake = D(z_fake)
@@ -208,6 +258,22 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         P.zero_grad()
         Q.zero_grad()
         D.zero_grad()
+        if MLP is not None:
+            MLP.train()
+
+        class_loss = float('nan')
+        if MLP is not None:
+            z_sample = Q(X)
+            pred = MLP(z_sample)
+            class_loss = F.nll_loss(pred, target)
+            class_loss.backward()
+            MLP_solver.step()
+            Q_solver.step()
+
+            P.zero_grad()
+            Q.zero_grad()
+            D.zero_grad()
+            MLP.train()
 
         if D_loss.data[0] == float('nan'):
             print 'D_loss hurt'
@@ -224,7 +290,7 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader):
         # if batch_idx == 100:
         #     print('Epoch: {} D: {} G: {} R: {}'.format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
 
-    return D_loss, G_loss, recon_loss, (samples.data[0], xsample.data[0])
+    return D_loss, G_loss, recon_loss, class_loss, (samples.data[0], xsample.data[0])
 
 def report_loss(D_loss, G_loss, recon_loss, samples=None):
         print('Epoch-{}; D_loss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
@@ -245,16 +311,16 @@ def report_loss(D_loss, G_loss, recon_loss, samples=None):
 
             plt.close()
 
-def create_latent(Q, valid_loader):
+def create_latent(Q, loader):
     Q.eval()
     labels = []
-    #for epoch in range(1):
-    for batch_idx, (X, target) in enumerate(valid_loader):
+
+    for batch_idx, (X, target) in enumerate(loader):
 
         X = X * 0.3081 + 0.1307
-        X.resize_(valid_batch_size, X_dim)
+        X.resize_(loader.batch_size, X_dim)
         X, target = Variable(X), Variable(target)
-        labels.append(target.data[0])
+        labels.extend(target.data.tolist())
         if cuda:
             X, target = X.cuda(), target.cuda()
         # Reconstruction phase
@@ -263,8 +329,10 @@ def create_latent(Q, valid_loader):
             z_values = np.concatenate((z_values, np.array(z_sample.data.tolist())))
         else:
             z_values = np.array(z_sample.data.tolist())
-
-    return z_values
+    labels = np.array(labels)
+    labels_onehot = np.zeros([loader.dataset.k, 10])
+    labels_onehot[np.arange(loader.dataset.k), labels] = 1
+    return z_values, labels
 
 ##################################
 # Create and initialize Networks
@@ -282,18 +350,27 @@ Q_solver = optim.Adam(Q.parameters(), lr=lr/100.)
 P_solver = optim.Adam(P.parameters(), lr=lr/100.)
 D_solver = optim.Adam(D.parameters(), lr=lr/100.)
 
+MLP = MLP_net()
+if cuda:
+    MLP.cuda()
+MLP_solver = optim.SGD(MLP.parameters(), lr=lr/50., momentum=0.4)
+
 for epoch in range(epochs):
-    D_loss, G_loss, recon_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
-                                                train_labeled_loader)
-    D_loss_u, G_loss_u, recon_loss_u, samples_u = train(P, Q, D, P_solver, Q_solver, D_solver,
-                                                        train_unlabeled_loader)
+    D_loss, G_loss, recon_loss, class_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
+                                                            train_labeled_loader,
+                                                            MLP, MLP_solver)
+
+    D_loss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D, P_solver, Q_solver, D_solver,
+                                                                    train_unlabeled_loader)
 
     # Print and plot every now and then
     if epoch % 5 == 0:
         print('Loss in Labeled')
         report_loss(D_loss, G_loss, recon_loss, samples)
+        print('Classification loss: {}'.format(class_loss.data[0]))
         print('Loss in UNLabeled')
         report_loss(D_loss_u, G_loss_u, recon_loss_u)
+
 
 
 #        gs = gridspec.GridSpec(4, 4)
@@ -312,4 +389,35 @@ for epoch in range(epochs):
 #        cnt += 1
 #        plt.close(fig)
 
+
+
+MLP_epochs = 100
+z_train, y_train = create_latent(Q, train_labeled_loader)
+z_train_t = torch.from_numpy(z_train.astype('float32'))
+y_train_t = torch.from_numpy(y_train)
+z_trainset = torch.utils.data.TensorDataset(z_train_t, y_train_t)
+z_trainset.k = z_train.shape[0]
+z_train_loader = torch.utils.data.DataLoader(z_trainset, batch_size=50, shuffle=True)
+
+z_val, y_val = create_latent(Q, valid_loader)
+z_val_t = torch.from_numpy(z_val.astype('float32'))
+y_val_t = torch.from_numpy(y_val)
+z_validset = torch.utils.data.TensorDataset(z_val_t, y_val_t)
+z_validset.k = z_val.shape[0]
+z_valid_loader = torch.utils.data.DataLoader(z_validset, batch_size=50, shuffle=True)
+
+MLP = MLP_net()
+if cuda:
+    MLP.cuda()
+MLP_solver = optim.Adam(MLP.parameters(), lr=lr/10.)
+
+
+
+for epoch in range(MLP_epochs):
+    MLP_loss = train_MLP(MLP, z_train_loader, MLP_solver)
+    if epoch % 5 == 0:
+        print('MLP_loss: {:.3}'.format(MLP_loss.data[0]))
+
+test_MLP(MLP, z_valid_loader)
+test_MLP(MLP, z_train_loader)
 
