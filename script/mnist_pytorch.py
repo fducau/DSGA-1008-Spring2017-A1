@@ -29,6 +29,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
+parser.add_argument('--dropout', type=float, default=0.5, help='Dropout drop probability')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -44,7 +45,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(1, 100, kernel_size=5)
         self.conv2 = nn.Conv2d(100, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
+        self.conv2_drop = nn.Dropout2d(p=args.dropout)
         self.fc1 = nn.Linear(320, 50)
         self.fc2 = nn.Linear(50, 10)
 
@@ -89,7 +90,7 @@ def test(model, epoch, valid_loader):
         correct += pred.eq(target.data).cpu().sum()
 
     test_loss /= len(valid_loader)  # loss function already averages over batch size
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
         test_loss, correct, len(valid_loader.dataset),
         100. * correct / len(valid_loader.dataset)))
 
@@ -101,12 +102,12 @@ def main():
     validset = pickle.load(open(data_path + "validation.p", "rb"))
 
     if args.elastic_augment:
-        print('augmenting dataset!')
-        trainset_labeled = augment_dataset(trainset_labeled, 100, 2)
+        print('Augmenting dataset!')
+        trainset_labeled = augment_dataset(trainset_labeled, b=100, k=8)
 
-        print('augmented dataset to size: {}'.format(trainset_labeled.k))
+        print('Augmented dataset to size: {}'.format(trainset_labeled.k))
         filename = 'train_augmented.p'
-        print('saving it to {}{}'.format(data_path, filename))
+        print('Saving augmented dataset to {}{}'.format(data_path, filename))
         output = open(data_path + filename, 'wb')
         pickle.dump(trainset_labeled, output)
 
@@ -118,7 +119,6 @@ def main():
         model.cuda()
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-
     for epoch in range(1, args.epochs + 1):
         train(model, optimizer, epoch, train_loader)
         test(model, epoch, valid_loader)

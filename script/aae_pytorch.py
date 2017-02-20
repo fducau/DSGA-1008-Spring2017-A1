@@ -27,7 +27,7 @@ lr = 1e-2
 momentum = 0.1
 
 train_batch_size = 32
-val_batch_size = 64
+valid_batch_size = 100
 epochs = 500
 
 
@@ -51,7 +51,7 @@ train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
                                                      batch_size=train_batch_size,
                                                      shuffle=True, **kwargs)
 
-valid_loader = torch.utils.data.DataLoader(validset, batch_size=train_batch_size, shuffle=True)
+valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size, shuffle=True)
 
 
 ##################################
@@ -96,6 +96,23 @@ class D_net(nn.Module):
         x = F.relu(x)
         x = self.lin2(x)
         return F.sigmoid(x)
+
+# Discriminator
+class Classifier(nn.Module):
+    def __init__(self):
+        super(D_net, self).__init__()
+        self.lin1 = nn.Linear(z_dim, 100)
+        self.lin2 = nn.Linear(100, 50)
+        self.lin3 = nn.Linear(50, 10)
+
+    def forward(self, x):
+        x = self.lin1(x)
+        x = F.relu(x)
+        x = self.lin2(x)
+        x = F.relu(x)
+        x = self.lin3(x)
+        return F.softmax(x)
+
 
 
 def sample_X(size, include_y=False):
@@ -228,6 +245,26 @@ def report_loss(D_loss, G_loss, recon_loss, samples=None):
 
             plt.close()
 
+def create_latent(Q, valid_loader):
+    Q.eval()
+    labels = []
+    #for epoch in range(1):
+    for batch_idx, (X, target) in enumerate(valid_loader):
+
+        X = X * 0.3081 + 0.1307
+        X.resize_(valid_batch_size, X_dim)
+        X, target = Variable(X), Variable(target)
+        labels.append(target.data[0])
+        if cuda:
+            X, target = X.cuda(), target.cuda()
+        # Reconstruction phase
+        z_sample = Q(X)
+        if batch_idx > 0:
+            z_values = np.concatenate((z_values, np.array(z_sample.data.tolist())))
+        else:
+            z_values = np.array(z_sample.data.tolist())
+
+    return z_values
 
 ##################################
 # Create and initialize Networks
