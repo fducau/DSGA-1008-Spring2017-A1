@@ -66,20 +66,25 @@ class Q_net(nn.Module):
         self.lin3a = nn.Linear(z_dim*2, h_dim)
         self.lin3b = nn.Linear(z_dim*2, h_dim)
         self.lin4a = nn.Linear(h_dim, n_classes)
-        self.lin4b = nn.Linear(z_dim*2, z_dim)
+        self.lin4b = nn.Linear(h_dim, z_dim)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
         x = self.lin2(x)
         x = F.relu(x)
+
         x1 = self.lin3a(x)
-        x1 = F.relu(x)
+        x1 = F.relu(x1)
         x1 = self.lin4a(x1)
         x1 = F.relu(x1)
 
         x2 = self.lin3b(x)
-        x2 = x2.relu()
+        x2 = F.relu(x2)
+        x2 = self.lin4b(x2)
+        x2 = F.relu(x2)
+
+        x = torch.cat((x1,x2),1)
 
         return x
 
@@ -113,17 +118,17 @@ class D_net(nn.Module):
 class MLP_net(nn.Module):
     def __init__(self):
         super(MLP_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim, 10)
-        self.lin2 = nn.Linear(10, 10)
+        self.lin1 = nn.Linear(z_dim, 25)
+        self.lin2 = nn.Linear(25, 10)
         self.lin3 = nn.Linear(48, 24)
         self.lin4 = nn.Linear(24,10)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
-        x = F.dropout(x, p=0.2 training=self.training)
-        #x = self.lin2(x)
-        #x = F.relu(x)
+        x = F.dropout(x, p=0.2, training=self.training)
+        x = self.lin2(x)
+        x = F.relu(x)
         #x = F.dropout(x, training=self.training)
         #x = self.lin3(x)
         #x = F.relu(x)
@@ -342,8 +347,7 @@ def create_latent(Q, loader):
         else:
             z_values = np.array(z_sample.data.tolist())
     labels = np.array(labels)
-    labels_onehot = np.zeros([loader.dataset.k, 10])
-    labels_onehot[np.arange(loader.dataset.k), labels] = 1
+
     return z_values, labels
 
 ##################################
@@ -365,15 +369,17 @@ D_solver = optim.Adam(D.parameters(), lr=lr/100.)
 MLP = MLP_net()
 if cuda:
     MLP.cuda()
-MLP_solver = optim.SGD(MLP.parameters(), lr=lr/50., momentum=0.4)
+MLP_solver = optim.SGD(MLP.parameters(), lr=lr/50.)
 
 for epoch in range(epochs):
+    D_loss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D, P_solver, Q_solver, D_solver,
+                                                           train_unlabeled_loader) 
+
     D_loss, G_loss, recon_loss, class_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
                                                             train_labeled_loader,
                                                             MLP, MLP_solver)
 
-    D_loss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D, P_solver, Q_solver, D_solver,
-                                                                    train_unlabeled_loader)
+
 
     # Print and plot every now and then
     if epoch % 5 == 0:
