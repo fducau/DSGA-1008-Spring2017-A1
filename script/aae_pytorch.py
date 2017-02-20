@@ -354,7 +354,7 @@ D_solver = optim.Adam(D.parameters(), lr=lr/100.)
 MLP = MLP_net()
 if cuda:
     MLP.cuda()
-MLP_solver = optim.SGD(MLP.parameters(), lr=lr/50.)
+MLP_solver = optim.Adam(MLP.parameters(), lr=lr/50.)
 
 for epoch in range(epochs):
     D_loss, G_loss, recon_loss, class_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
