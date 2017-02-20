@@ -103,7 +103,7 @@ def main():
 
     if args.elastic_augment:
         print('Augmenting dataset!')
-        trainset_labeled = augment_dataset(trainset_labeled, b=100, k=8)
+        augment_dataset(trainset_labeled, b=100, k=8)
 
         print('Augmented dataset to size: {}'.format(trainset_labeled.k))
         filename = 'train_augmented.p'
