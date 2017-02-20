@@ -92,7 +92,7 @@ class Q_net(nn.Module):
 class P_net(nn.Module):
     def __init__(self):
         super(P_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim, h_dim)
+        self.lin1 = nn.Linear(z_dim + 10, h_dim)
         self.lin2 = nn.Linear(h_dim, X_dim)
 
     def forward(self, x):
@@ -244,14 +244,16 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
             MLP.train()
         """ Regularization phase """
         # Discriminator
-        z_real = Variable(torch.randn(train_batch_size, z_dim))
+
+        z_real2 = Variable(torch.randn(train_batch_size, z_dim))
         if cuda:
-            z_real = z_real.cuda()
+            z_real2 = z_real2.cuda()
 
         z_fake = Q(X)
+        z_fake2 = z_fake[:,10:]
 
-        D_real = D(z_real)
-        D_fake = D(z_fake)
+        D_real = D(z_real2)
+        D_fake = D(z_fake2)
 
         D_loss = -torch.mean(torch.log(D_real) + torch.log(1 - D_fake))
 
@@ -265,7 +267,7 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
             MLP.train()
         # Generator
         z_fake = Q(X)
-        D_fake = D(z_fake)
+        D_fake = D(z_fake2)
 
         G_loss = -torch.mean(torch.log(D_fake))
 
