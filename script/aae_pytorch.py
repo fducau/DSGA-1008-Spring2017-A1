@@ -16,7 +16,7 @@ mnist = input_data.read_data_sets('../../MNIST_data', one_hot=True)
 
 cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
-
+n_classes = 10
 mb_size = 32
 z_dim = 12
 X_dim = 784
@@ -62,13 +62,25 @@ class Q_net(nn.Module):
     def __init__(self):
         super(Q_net, self).__init__()
         self.lin1 = nn.Linear(X_dim, h_dim)
-        self.lin2 = nn.Linear(h_dim, z_dim)
-
+        self.lin2 = nn.Linear(h_dim, z_dim*2)
+        self.lin3a = nn.Linear(z_dim*2, h_dim)
+        self.lin3b = nn.Linear(z_dim*2, h_dim)
+        self.lin4a = nn.Linear(h_dim, n_classes)
+        self.lin4b = nn.Linear(z_dim*2, z_dim)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
         x = self.lin2(x)
+        x = F.relu(x)
+        x1 = self.lin3a(x)
+        x1 = F.relu(x)
+        x1 = self.lin4a(x1)
+        x1 = F.relu(x1)
+
+        x2 = self.lin3b(x)
+        x2 = x2.relu()
+
         return x
 
 # Decoder
