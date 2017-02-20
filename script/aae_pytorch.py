@@ -251,16 +251,23 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
 
         D_real1 = D_cat(z_real1)
         D_real2 = D_gauss(z_real2)
-        D_fake = D(z_fake2)
+        D_fake1 = D(z_fake1)
+        D_fake2 = D(z_fake2)
 
-        D_loss = -torch.mean(torch.log(D_real) + torch.log(1 - D_fake))
+        D_loss1 = -torch.mean(torch.log(D_real1) + torch.log(1 - D_fake1))
+        D_loss2 = -torch.mean(torch.log(D_real2) + torch.log(1 - D_fake2))
 
-        D_loss.backward()
-        D_solver.step()
+        D_loss1.backward()
+        D_cat_solver.step()
+
+        D_loss2.backward()
+        D_gauss.step()
 
         P.zero_grad()
         Q.zero_grad()
-        D.zero_grad()
+        D_cat.zero_grad()
+        D_gauss.zero_grad()
+    
         if MLP is not None:
             MLP.train()
         # Generator
