@@ -101,8 +101,8 @@ class D_net(nn.Module):
 class MLP_net(nn.Module):
     def __init__(self):
         super(MLP_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim, 10)
-        self.lin2 = nn.Linear(10, 10)
+        self.lin1 = nn.Linear(z_dim, h_dim)
+        self.lin2 = nn.Linear(h_dim, 10)
         self.lin3 = nn.Linear(48, 24)
         self.lin4 = nn.Linear(24,10)
 
@@ -110,9 +110,9 @@ class MLP_net(nn.Module):
         x = self.lin1(x)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
-        #x = self.lin2(x)
+        x = self.lin2(x)
         #x = F.dropout(x, training=self.training)
-        #x = F.relu(x)
+        x = F.relu(x)
         #x = F.dropout(x, training=self.training)
         #x = self.lin3(x)
         #x = F.relu(x)
