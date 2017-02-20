@@ -110,9 +110,9 @@ class MLP_net(nn.Module):
         x = self.lin1(x)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
-        x = self.lin2(x)
-        x = F.dropout(x, training=self.training)
-        x = F.relu(x)
+        #x = self.lin2(x)
+        #x = F.dropout(x, training=self.training)
+        #x = F.relu(x)
         #x = F.dropout(x, training=self.training)
         #x = self.lin3(x)
         #x = F.relu(x)
@@ -354,7 +354,7 @@ D_solver = optim.Adam(D.parameters(), lr=lr/100.)
 MLP = MLP_net()
 if cuda:
     MLP.cuda()
-MLP_solver = optim.SGD(MLP.parameters(), lr=lr/50., momentum=0.4)
+MLP_solver = optim.SGD(MLP.parameters(), lr=lr/50.)
 
 for epoch in range(epochs):
     D_loss, G_loss, recon_loss, class_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
@@ -421,4 +421,7 @@ for epoch in range(MLP_epochs):
 
 test_MLP(MLP, z_valid_loader)
 test_MLP(MLP, z_train_loader)
+
+
+
 
