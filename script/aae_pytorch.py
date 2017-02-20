@@ -109,7 +109,7 @@ class MLP_net(nn.Module):
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
-        x = F.dropout(x, training=self.training)
+        x = F.dropout(x, p=0.2 training=self.training)
         #x = self.lin2(x)
         #x = F.relu(x)
         #x = F.dropout(x, training=self.training)
