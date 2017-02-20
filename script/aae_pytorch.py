@@ -210,24 +210,12 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
         X.resize_(train_batch_size, X_dim)
         X, target = Variable(X), Variable(target)
 
-        # Check if data has negative values and ignore
-        if X.min().data[0] < 0:
-            print 'Skipping bad input. '
-            #raise ValueError
-            continue
-
-        #X = sample_X(train_batch_size)
-
         if cuda:
             X, target = X.cuda(), target.cuda()
 
         # Reconstruction phase
         z_sample = Q(X)
         X_sample = P(z_sample)
-
-        #if X_sample.min().data[0] < 0:
-        #    print 'breaked2'
-        #    break
 
         # Use epsilon to avoid log(0) case
         epsilon = 1e-8
@@ -242,9 +230,12 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
         D.zero_grad()
         if MLP is not None:
             MLP.train()
+
         """ Regularization phase """
         # Discriminator
 
+        z_real1 = np.random.randint(0,10,train_batch_size)
+        np.eye()[]
         z_real2 = Variable(torch.randn(train_batch_size, z_dim))
         if cuda:
             z_real2 = z_real2.cuda()
