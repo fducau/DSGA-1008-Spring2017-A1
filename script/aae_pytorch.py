@@ -267,6 +267,7 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
             MLP.train()
         # Generator
         z_fake = Q(X)
+        z_fake2 = z_fake[:,10:]
         D_fake = D(z_fake2)
 
         G_loss = -torch.mean(torch.log(D_fake))
@@ -281,18 +282,18 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
             MLP.train()
 
         class_loss = float('nan')
-        if MLP is not None:
-            z_sample = Q(X)
-            pred = MLP(z_sample)
-            class_loss = F.nll_loss(pred, target)
-            class_loss.backward()
-            MLP_solver.step()
-            Q_solver.step()
+        #if MLP is not None:
+        #    z_sample = Q(X)
+        #    pred = MLP(z_sample)
+        #    class_loss = F.nll_loss(pred, target)
+        #    class_loss.backward()
+        #    MLP_solver.step()
+        #    Q_solver.step()
 
-            P.zero_grad()
-            Q.zero_grad()
-            D.zero_grad()
-            MLP.train()
+        #    P.zero_grad()
+        #    Q.zero_grad()
+        #    D.zero_grad()
+        #    MLP.train()
 
         if D_loss.data[0] == float('nan'):
             print 'D_loss hurt'
