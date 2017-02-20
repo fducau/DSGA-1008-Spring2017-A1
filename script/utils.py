@@ -7,16 +7,18 @@ import torch
 
 
 def augment_dataset(trainset_labeled, b=100, k=2):
+    # Modifies trainset_labeled inline
     X = trainset_labeled.train_data
     Y = trainset_labeled.train_labels
 
     batches = [(X[i:i + b], Y[i:i + b]) for i in xrange(0, len(X), b)]
 
     augmented_data, augmented_labels = [], []
-    for img_batch, labels in batches:
-        augmented_data.extend(elastic_transform(img_batch, sigma=8, alpha=34))
+    for i in range(k):  
+        for img_batch, labels in batches:
+            augmented_data.extend(elastic_transform(img_batch, sigma=8, alpha=34))
 
-        augmented_labels.extend(labels)
+            augmented_labels.extend(labels)
 
     augmented_data = np.array(augmented_data)
     augmented_labels = np.array(augmented_labels)
