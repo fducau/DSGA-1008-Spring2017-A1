@@ -235,15 +235,22 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
         # Discriminator
 
         z_real1 = np.random.randint(0,10,train_batch_size)
-        np.eye()[]
+        np.eye(n_classes)[z_real1]
+        z_real1 = torch.from_numpy(z_real1)
+        z_real1 = Variable(z_real1)
+        if cuda:
+            z_real1 = z_real1.cuda()
+
         z_real2 = Variable(torch.randn(train_batch_size, z_dim))
         if cuda:
             z_real2 = z_real2.cuda()
 
         z_fake = Q(X)
+        z_fake1 = z_fake[:,:10]
         z_fake2 = z_fake[:,10:]
 
-        D_real = D(z_real2)
+        D_real1 = D_cat(z_real1)
+        D_real2 = D_gauss(z_real2)
         D_fake = D(z_fake2)
 
         D_loss = -torch.mean(torch.log(D_real) + torch.log(1 - D_fake))
@@ -354,11 +361,13 @@ if cuda:
 else:
     Q = Q_net()
     P = P_net()
-    D = D_net()
+    D_gauss = D_net()
+    D_cat = D_net()
 
 Q_solver = optim.Adam(Q.parameters(), lr=lr/100.)
 P_solver = optim.Adam(P.parameters(), lr=lr/100.)
-D_solver = optim.Adam(D.parameters(), lr=lr/100.)
+D_gauss_solver = optim.Adam(D.parameters(), lr=lr/100.)
+D_cat_solver = optim.Adam(D.parameters(), lr=lr/100.)
 
 MLP = MLP_net()
 if cuda:
@@ -366,10 +375,14 @@ if cuda:
 MLP_solver = optim.SGD(MLP.parameters(), lr=lr/50.)
 
 for epoch in range(epochs):
-    D_loss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D, P_solver, Q_solver, D_solver,
+    D_loss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D_gauss, D_cat,
+                                                           P_solver, Q_solver,
+                                                           D_gauss_solver, D_cat_solver
                                                            train_unlabeled_loader) 
 
-    D_loss, G_loss, recon_loss, class_loss, samples = train(P, Q, D, P_solver, Q_solver, D_solver,
+    D_loss, G_loss, recon_loss, class_loss, samples = train(P, Q, D_gauss, D_cat,
+                                                            P_solver, Q_solver,
+                                                            D_gauss_solver, D_cat_solver,
                                                             train_labeled_loader,
                                                             MLP, MLP_solver)
 
