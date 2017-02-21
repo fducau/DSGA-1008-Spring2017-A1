@@ -18,12 +18,12 @@ cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 n_classes = 10
 mb_size = 32
-z_dim = 12
+z_dim = 10
 X_dim = 784
 y_dim = 10
 h_dim = 128
 cnt = 0
-lr = 1e-2
+lr = 0.001
 momentum = 0.1
 
 train_batch_size = 50
@@ -61,12 +61,12 @@ valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size
 class Q_net(nn.Module):
     def __init__(self):
         super(Q_net, self).__init__()
-        self.lin1 = nn.Linear(X_dim, h_dim)
-        self.lin2 = nn.Linear(h_dim, z_dim*2)
-        self.lin3a = nn.Linear(z_dim*2, h_dim)
-        self.lin3b = nn.Linear(z_dim*2, h_dim)
-        self.lin4a = nn.Linear(h_dim, n_classes)
-        self.lin4b = nn.Linear(h_dim, z_dim)
+        self.lin1 = nn.Linear(X_dim, 1000)
+        self.lin2 = nn.Linear(1000, 1000)
+        self.lin3a = nn.Linear(1000, n_classes)
+        self.lin3b = nn.Linear(1000, z_dim)
+        #self.lin4a = nn.Linear(1000, n_classes)
+        #self.lin4b = nn.Linear(1000, z_dim)
 
     def forward(self, x):
         x = self.lin1(x)
@@ -76,24 +76,24 @@ class Q_net(nn.Module):
 
         x1 = self.lin3a(x)
         x1 = F.relu(x1)
-        x1 = self.lin4a(x1)
-        x1 = F.relu(x1)
+        #x1 = self.lin4a(x1)
+        #x1 = F.softmax(x1)
 
         x2 = self.lin3b(x)
         x2 = F.relu(x2)
-        x2 = self.lin4b(x2)
-        x2 = F.relu(x2)
+        #x2 = self.lin4b(x2)
+        #x2 = F.relu(x2)
 
-        x = torch.cat((x1,x2),1)
+        #x = torch.cat((x1,x2),1)
 
-        return x
+        return x1, x2
 
 # Decoder
 class P_net(nn.Module):
     def __init__(self):
         super(P_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim + 10, h_dim)
-        self.lin2 = nn.Linear(h_dim, X_dim)
+        self.lin1 = nn.Linear(z_dim + 10, 1000)
+        self.lin2 = nn.Linear(1000, X_dim)
 
     def forward(self, x):
         x = self.lin1(x)
@@ -102,11 +102,11 @@ class P_net(nn.Module):
         return F.sigmoid(x)
 
 # Discriminator
-class D_net(nn.Module):
+class D_net_cat(nn.Module):
     def __init__(self):
-        super(D_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim, h_dim)
-        self.lin2 = nn.Linear(h_dim, 1)
+        super(D_net_cat, self).__init__()
+        self.lin1 = nn.Linear(10, 1000)
+        self.lin2 = nn.Linear(1000, 1)
 
     def forward(self, x):
         x = self.lin1(x)
@@ -114,86 +114,27 @@ class D_net(nn.Module):
         x = self.lin2(x)
         return F.sigmoid(x)
 
-# Discriminator
-class MLP_net(nn.Module):
+class D_net_gauss(nn.Module):
     def __init__(self):
-        super(MLP_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim, 25)
-        self.lin2 = nn.Linear(25, 10)
-        self.lin3 = nn.Linear(48, 24)
-        self.lin4 = nn.Linear(24,10)
+        super(D_net_gauss, self).__init__()
+        self.lin1 = nn.Linear(z_dim, 1000)
+        self.lin2 = nn.Linear(1000, 1)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
-        x = F.dropout(x, p=0.2, training=self.training)
         x = self.lin2(x)
-        x = F.relu(x)
-        #x = F.dropout(x, training=self.training)
-        #x = self.lin3(x)
-        #x = F.relu(x)
-        #x = self.lin4(x)
-        return F.log_softmax(x)
+        return F.sigmoid(x)
 
 
+def train(P, Q, D_cat, D_gauss,
+          P_solver, Q_solver, D_cat_solver, D_gauss_solver,
+          data_loader, labeled=False):
 
-def sample_X(size, include_y=False):
-    X, y = mnist.train.next_batch(size)
-    X = Variable(torch.from_numpy(X))
-
-    if include_y:
-        y = np.argmax(y, axis=1).astype(np.int)
-        y = Variable(torch.from_numpy(y))
-        return X, y
-
-    return X
-
-
-def train_MLP(MLP, data_loader, MLP_solver):
-    MLP.train()
-    for batch_idx, (X, target) in enumerate(data_loader):
-        if batch_idx * data_loader.batch_size + data_loader.batch_size > data_loader.dataset.k:
-            continue
-        MLP.zero_grad()
-        X, target = Variable(X), Variable(target)
-        if cuda:
-            X, target = X.cuda(), target.cuda()
-        target = target.resize(data_loader.batch_size)
-        output = MLP(X)
-        loss = F.nll_loss(output, target)
-        loss.backward()
-        MLP_solver.step()
-    return loss
-
-def test_MLP(MLP, data_loader):
-    MLP.eval()
-    test_loss = 0
-    correct = 0
-    for X, target in data_loader:
-        X, target = Variable(X), Variable(target)
-        if cuda:
-            X, target = X.cuda(), target.cuda()
-        target = target.resize(data_loader.batch_size)
-        output = MLP(X)
-        test_loss += F.nll_loss(output, target).data[0]
-
-        pred = output.data.max(1)[1]  # get the index of the max log-probability
-        correct += pred.eq(target.data).cpu().sum()
-
-    test_loss /= len(data_loader)  # loss function already averages over batch size
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
-        test_loss, correct, len(data_loader.dataset),
-        100. * correct / len(data_loader.dataset)))
-
-
-
-
-def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solver=None):
     Q.train()
     P.train()
-    D.train()
-    if MLP is not None:
-        MLP.train()
+    D_cat.train()
+    D_gauss.train()
 
     for batch_idx, (X, target) in enumerate(data_loader):
         if batch_idx * data_loader.batch_size + data_loader.batch_size > data_loader.dataset.k:
@@ -201,9 +142,8 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
 
         P.zero_grad()
         Q.zero_grad()
-        D.zero_grad()
-        if MLP is not None:
-            MLP.train()
+        D_cat.zero_grad()
+        D_gauss.zero_grad()
 
         X = X * 0.3081 + 0.1307
 
@@ -213,13 +153,18 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
         if cuda:
             X, target = X.cuda(), target.cuda()
 
-        # Reconstruction phase
-        z_sample = Q(X)
+        recon_loss = 'NA'
+        #if not labeled:
+            # Reconstruction phase
+        z_sample = torch.cat(Q(X), 1)
+        if cuda:
+            z_sample = z_sample.cuda()
+        #z_sample = Q(X)
         X_sample = P(z_sample)
 
         # Use epsilon to avoid log(0) case
-        epsilon = 1e-8
-        recon_loss = F.binary_cross_entropy(X_sample + epsilon, X + epsilon)
+        TINY = 1e-8
+        recon_loss = F.binary_cross_entropy(X_sample + TINY, X + TINY)
 
         recon_loss.backward()
         P_solver.step()
@@ -227,99 +172,99 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
 
         P.zero_grad()
         Q.zero_grad()
-        D.zero_grad()
-        if MLP is not None:
-            MLP.train()
+        D_cat.zero_grad()
+        D_gauss.zero_grad()
+
+        recon_loss = recon_loss.data[0]
 
         """ Regularization phase """
         # Discriminator
-
-        z_real1 = np.random.randint(0,10,train_batch_size)
-        np.eye(n_classes)[z_real1]
-        z_real1 = torch.from_numpy(z_real1)
-        z_real1 = Variable(z_real1)
+        #Change for sample_categorical
+        z_real_cat = np.random.randint(0, 10, train_batch_size)
+        z_real_cat = np.eye(n_classes)[z_real_cat].astype('float32')
+        z_real_cat = torch.from_numpy(z_real_cat)
+        z_real_cat = Variable(z_real_cat)
+        ######
         if cuda:
-            z_real1 = z_real1.cuda()
+            z_real_cat = z_real_cat.cuda()
 
-        z_real2 = Variable(torch.randn(train_batch_size, z_dim))
+        z_real_gauss = Variable(torch.randn(train_batch_size, z_dim))
         if cuda:
-            z_real2 = z_real2.cuda()
+            z_real_gauss = z_real_gauss.cuda()
 
-        z_fake = Q(X)
-        z_fake1 = z_fake[:,:10]
-        z_fake2 = z_fake[:,10:]
+        z_fake_cat, z_fake_gauss = Q(X)
 
-        D_real1 = D_cat(z_real1)
-        D_real2 = D_gauss(z_real2)
-        D_fake1 = D(z_fake1)
-        D_fake2 = D(z_fake2)
+        D_real_cat = D_cat(z_real_cat)
+        D_real_gauss = D_gauss(z_real_gauss)
+        D_fake_cat = D_cat(z_fake_cat)
+        D_fake_gauss = D_gauss(z_fake_gauss)
 
-        D_loss1 = -torch.mean(torch.log(D_real1) + torch.log(1 - D_fake1))
-        D_loss2 = -torch.mean(torch.log(D_real2) + torch.log(1 - D_fake2))
+        D_loss_cat = -torch.mean(torch.log(D_real_cat + TINY) - torch.log(1 - D_fake_cat + TINY))
+        D_loss_gauss = -torch.mean(torch.log(D_real_gauss + TINY) - torch.log(1 - D_fake_gauss + TINY))
 
-        D_loss1.backward()
+        if D_loss_cat.data[0] > 15.0:
+            D_loss_cat.data[0] = 15.
+
+        if D_loss_gauss.data[0] > 15.:
+            D_loss_gauss.data[0] = 15.
+
+        D_loss = D_loss_cat + D_loss_gauss
+        #D_loss = D_loss_gauss
+        D_loss.backward()
+        #if labeled:
         D_cat_solver.step()
-
-        D_loss2.backward()
-        D_gauss.step()
+        D_gauss_solver.step()
 
         P.zero_grad()
         Q.zero_grad()
         D_cat.zero_grad()
         D_gauss.zero_grad()
-    
-        if MLP is not None:
-            MLP.train()
+
         # Generator
-        z_fake = Q(X)
-        z_fake2 = z_fake[:,10:]
-        D_fake = D(z_fake2)
 
-        G_loss = -torch.mean(torch.log(D_fake))
+        z_fake_cat, z_fake_gauss = Q(X)
 
+        D_fake_cat = D_cat(z_fake_cat)
+        D_fake_gauss = D_gauss(z_fake_gauss)
+
+        G_loss = - torch.mean(torch.log(D_fake_cat + TINY)) - torch.mean(torch.log(D_fake_gauss + TINY))
+        #G_loss = - torch.mean(torch.log(D_fake_gauss))
         G_loss.backward()
         Q_solver.step()
 
         P.zero_grad()
         Q.zero_grad()
-        D.zero_grad()
-        if MLP is not None:
-            MLP.train()
+        D_cat.zero_grad()
+        D_gauss.zero_grad()
 
         class_loss = float('nan')
-        #if MLP is not None:
-        #    z_sample = Q(X)
-        #    pred = MLP(z_sample)
-        #    class_loss = F.nll_loss(pred, target)
-        #    class_loss.backward()
-        #    MLP_solver.step()
-        #    Q_solver.step()
+        if labeled:
+            pred = Q(X)[0]
+            class_loss = F.cross_entropy(pred, target)
+            class_loss.backward()
+            Q_solver.step()
 
-        #    P.zero_grad()
-        #    Q.zero_grad()
-        #    D.zero_grad()
-        #    MLP.train()
+            P.zero_grad()
+            Q.zero_grad()
+            D_cat.zero_grad()
+            D_gauss.zero_grad()
 
-        if D_loss.data[0] == float('nan'):
-            print 'D_loss hurt'
-            raise ValueError
-        if G_loss.data[0] == float('nan'):
-            print 'G_loss hurt'
-            raise ValueError
-        if recon_loss.data[0] == float('nan'):
-            print 'recon_loss hurt'
-            raise ValueError
+        z_sample = torch.cat(Q(X), 1)
+        if cuda:
+            z_sample = z_sample.cuda()
 
         samples = P(z_sample)
         xsample = X
-        # if batch_idx == 100:
-        #     print('Epoch: {} D: {} G: {} R: {}'.format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
 
-    return D_loss, G_loss, recon_loss, class_loss, (samples.data[0], xsample.data[0])
+        #D_loss_cat = D_loss_gauss
+        #G_loss = D_loss_gauss
+        #class_loss = D_loss_gauss
+    return D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss, (samples.data[0], xsample.data[0])
 
-def report_loss(D_loss, G_loss, recon_loss, samples=None):
-        print('Epoch-{}; D_loss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
-              .format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
+def report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss, samples=None):
+        print('Epoch-{}; D_loss_cat: {:.4}: D_loss_gauss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
+              .format(epoch, D_loss_cat.data[0], D_loss_gauss.data[0], 
+                      G_loss.data[0], recon_loss))
 
         if samples is not None:
             img = np.array(samples[0].tolist()).reshape(28, 28)
@@ -358,50 +303,47 @@ def create_latent(Q, loader):
 
     return z_values, labels
 
+
 ##################################
 # Create and initialize Networks
 ##################################
 if cuda:
     Q = Q_net().cuda()
     P = P_net().cuda()
-    D = D_net().cuda()
+    D_cat = D_net_cat().cuda()
+    D_gauss = D_net_gauss().cuda()
 else:
     Q = Q_net()
     P = P_net()
-    D_gauss = D_net()
-    D_cat = D_net()
+    D_gauss = D_net_gauss()
+    D_cat = D_net_cat()
 
-Q_solver = optim.Adam(Q.parameters(), lr=lr/100.)
-P_solver = optim.Adam(P.parameters(), lr=lr/100.)
-D_gauss_solver = optim.Adam(D.parameters(), lr=lr/100.)
-D_cat_solver = optim.Adam(D.parameters(), lr=lr/100.)
-
-MLP = MLP_net()
-if cuda:
-    MLP.cuda()
-MLP_solver = optim.SGD(MLP.parameters(), lr=lr/50.)
+Q_solver = optim.SGD(Q.parameters(), lr=0.01, momentum=0.9)
+P_solver = optim.SGD(P.parameters(), lr=0.01, momentum=0.9)
+D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=0.001)
+D_cat_solver = optim.SGD(D_cat.parameters(), lr=0.001)
 
 for epoch in range(epochs):
-    D_loss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D_gauss, D_cat,
-                                                           P_solver, Q_solver,
-                                                           D_gauss_solver, D_cat_solver
-                                                           train_unlabeled_loader) 
+    D_loss_cat_u, D_loss_gauss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D_cat, D_gauss,
+                                                                               P_solver, Q_solver,
+                                                                               D_gauss_solver, D_cat_solver,
+                                                                               train_unlabeled_loader)
 
-    D_loss, G_loss, recon_loss, class_loss, samples = train(P, Q, D_gauss, D_cat,
-                                                            P_solver, Q_solver,
-                                                            D_gauss_solver, D_cat_solver,
-                                                            train_labeled_loader,
-                                                            MLP, MLP_solver)
-
-
+    D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss, samples = train(P, Q, D_cat, D_gauss,
+                                                                              P_solver, Q_solver,
+                                                                              D_gauss_solver, D_cat_solver,
+                                                                              train_labeled_loader,
+                                                                              labeled=True)
+    #if epoch % 5 == 0:
+    #    print('Epoch:{} - ReconLoss: {}'.format(epoch, recon_loss))
 
     # Print and plot every now and then
     if epoch % 5 == 0:
-        print('Loss in Labeled')
-        report_loss(D_loss, G_loss, recon_loss, samples)
-        print('Classification loss: {}'.format(class_loss.data[0]))
         print('Loss in UNLabeled')
-        report_loss(D_loss_u, G_loss_u, recon_loss_u)
+        report_loss(D_loss_cat_u, D_loss_gauss_u, G_loss_u, recon_loss_u)
+        print('Loss in Labeled')
+        report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss, samples)
+        print('Classification loss: {}'.format(class_loss.data[0]))
 
 
 

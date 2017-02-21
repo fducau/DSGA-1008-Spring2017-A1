@@ -14,7 +14,7 @@ def augment_dataset(trainset_labeled, b=100, k=2):
     batches = [(X[i:i + b], Y[i:i + b]) for i in xrange(0, len(X), b)]
 
     augmented_data, augmented_labels = [], []
-    for i in range(k):  
+    for i in range(k):
         for img_batch, labels in batches:
             augmented_data.extend(elastic_transform(img_batch, sigma=8, alpha=34))
 
@@ -33,7 +33,7 @@ def augment_dataset(trainset_labeled, b=100, k=2):
     return trainset_labeled
 
 
-def elastic_transform(img_batch, sigma=4, alpha=34):
+def elastic_transform(img_batch, sigma=8, alpha=34):
     img_batch = img_batch.numpy()
     x_dim = img_batch.shape[1]
     y_dim = img_batch.shape[2]
@@ -43,9 +43,9 @@ def elastic_transform(img_batch, sigma=4, alpha=34):
     uniform_random_y = uniform(-1, 1, size=img_batch.shape[1:])
 
     elastic_x = gaussian_filter(alpha * uniform_random_x,
-                                                      sigma=sigma, mode='constant')
+                                sigma=sigma, mode='constant')
     elastic_y = gaussian_filter(alpha * uniform_random_y,
-                                                      sigma=sigma, mode='constant')
+                                sigma=sigma, mode='constant')
     elastic_distortion_x = pos[0] + elastic_x
     elastic_distortion_y = pos[1] + elastic_y
     elastic = np.array([elastic_distortion_x, elastic_distortion_y])
@@ -54,6 +54,6 @@ def elastic_transform(img_batch, sigma=4, alpha=34):
     batch_size = img_batch.shape[0]
 
     for i in range(batch_size):
-        transformed.append(map_coordinates(img_batch[i], elastic, order=1,
+        transformed.append(map_coordinates(img_batch[i], elastic, order=0,
                                            prefilter=False, mode='reflect'))
     return transformed
