@@ -10,6 +10,7 @@ from tensorflow.examples.tutorials.mnist import input_data
 import torch.nn as nn
 import torch.nn.functional as F
 import pickle
+from utils import *
 
 mnist = input_data.read_data_sets('../../MNIST_data', one_hot=True)
 
@@ -42,6 +43,18 @@ trainset_unlabeled = pickle.load(open(data_path + "train_unlabeled.p", "rb"))
 trainset_unlabeled.train_labels = torch.from_numpy(np.array([-1] * 47000))
 
 validset = pickle.load(open(data_path + "validation.p", "rb"))
+
+print('Augmenting dataset!')
+augment_dataset(trainset_labeled, b=100, k=12)
+
+print('Augmented dataset to size: {}'.format(trainset_labeled.k))
+
+trainset_labeled.transform.transforms[1].mean = (0, )
+trainset_labeled.transform.transforms[1].std = (1, )
+trainset_unlabeled.transform.transforms[1].mean = (0, )
+trainset_unlabeled.transform.transforms[1].std = (1, )
+validset.transform.transforms[1].mean = (0, )
+validset.transform.transforms[1].std = (1, )
 
 
 train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled,
@@ -187,9 +200,9 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
         Q.zero_grad()
         D.zero_grad()
         if MLP is not None:
-            MLP.train()
+            MLP.zero_grad()
 
-        X = X * 0.3081 + 0.1307
+        # X = X * 0.3081 + 0.1307
 
         X.resize_(train_batch_size, X_dim)
         X, target = Variable(X), Variable(target)
@@ -225,7 +238,7 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
         Q.zero_grad()
         D.zero_grad()
         if MLP is not None:
-            MLP.train()
+            MLP.zero_grad()
         """ Regularization phase """
         # Discriminator
         z_real = Variable(torch.randn(train_batch_size, z_dim))
@@ -246,7 +259,7 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
         Q.zero_grad()
         D.zero_grad()
         if MLP is not None:
-            MLP.train()
+            MLP.zero_grad()
         # Generator
         z_fake = Q(X)
         D_fake = D(z_fake)
@@ -260,7 +273,7 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
         Q.zero_grad()
         D.zero_grad()
         if MLP is not None:
-            MLP.train()
+            MLP.zero_grad()
 
         class_loss = float('nan')
         if MLP is not None:
@@ -274,7 +287,7 @@ def train(P, Q, D, P_solver, Q_solver, D_solver, data_loader, MLP=None, MLP_solv
             P.zero_grad()
             Q.zero_grad()
             D.zero_grad()
-            MLP.train()
+            MLP.zero_grad()
 
         if D_loss.data[0] == float('nan'):
             print 'D_loss hurt'
@@ -297,20 +310,20 @@ def report_loss(D_loss, G_loss, recon_loss, samples=None):
         print('Epoch-{}; D_loss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
               .format(epoch, D_loss.data[0], G_loss.data[0], recon_loss.data[0]))
 
-        if samples is not None:
-            img = np.array(samples[0].tolist()).reshape(28, 28)
-            plt.imshow(img, cmap='hot')
+        # if samples is not None:
+        #     img = np.array(samples[0].tolist()).reshape(28, 28)
+        #     plt.imshow(img, cmap='hot')
 
-            plt.savefig('out/{}.png'
-                        .format(str(epoch).zfill(3)), bbox_inches='tight')
+        #     plt.savefig('out/{}.png'
+        #                 .format(str(epoch).zfill(3)), bbox_inches='tight')
 
-            img = np.array(samples[1].tolist()).reshape(28, 28)
-            plt.imshow(img, cmap='hot')
+        #     img = np.array(samples[1].tolist()).reshape(28, 28)
+        #     plt.imshow(img, cmap='hot')
 
-            plt.savefig('out/{}_orig.png'
-                        .format(str(epoch).zfill(3)), bbox_inches='tight')
+        #     plt.savefig('out/{}_orig.png'
+        #                 .format(str(epoch).zfill(3)), bbox_inches='tight')
 
-            plt.close()
+        #     plt.close()
 
 def create_latent(Q, loader):
     Q.eval()
@@ -318,7 +331,7 @@ def create_latent(Q, loader):
 
     for batch_idx, (X, target) in enumerate(loader):
 
-        X = X * 0.3081 + 0.1307
+        # X = X * 0.3081 + 0.1307
         X.resize_(loader.batch_size, X_dim)
         X, target = Variable(X), Variable(target)
         labels.extend(target.data.tolist())
@@ -421,7 +434,5 @@ for epoch in range(MLP_epochs):
 
 test_MLP(MLP, z_valid_loader)
 test_MLP(MLP, z_train_loader)
-
-
 
 
