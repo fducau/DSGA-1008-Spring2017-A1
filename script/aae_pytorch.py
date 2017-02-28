@@ -1,3 +1,4 @@
+from utils import augment_dataset
 import torch
 import torch.autograd as autograd
 import torch.optim as optim
@@ -11,9 +12,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pickle
 
-mnist = input_data.read_data_sets('../../MNIST_data', one_hot=True)
-
-
 cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 n_classes = 10
@@ -25,11 +23,10 @@ h_dim = 128
 cnt = 0
 lr = 0.001
 momentum = 0.1
+augment = True
 
 train_batch_size = 50
 valid_batch_size = 50
-epochs = 500
-
 
 ##################################
 # Load data and create Data loaders
@@ -40,6 +37,11 @@ data_path = './../data/'
 trainset_labeled = pickle.load(open(data_path + "train_labeled.p", "rb"))
 trainset_unlabeled = pickle.load(open(data_path + "train_unlabeled.p", "rb"))
 trainset_unlabeled.train_labels = torch.from_numpy(np.array([-1] * 47000))
+
+if augment:
+    print("Augmenting training data with elastic transformations")
+    augment_dataset(trainset_labeled, k=8)
+    print("New dataset size = {}".format(trainset_labeled.k))
 
 validset = pickle.load(open(data_path + "validation.p", "rb"))
 
@@ -76,7 +78,6 @@ class Net(nn.Module):
         x = F.dropout(x, training=self.training)
         x = F.relu(self.fc2(x))
         return F.log_softmax(x)
-
 
 # Encoder
 class Q_net(nn.Module):

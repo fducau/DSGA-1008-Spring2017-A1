@@ -14,9 +14,9 @@ def augment_dataset(trainset_labeled, b=100, k=2):
     batches = [(X[i:i + b], Y[i:i + b]) for i in xrange(0, len(X), b)]
 
     augmented_data, augmented_labels = [], []
-    for i in range(k):
+    for i in range(k - 1):
         for img_batch, labels in batches:
-            augmented_data.extend(elastic_transform(img_batch, sigma=8, alpha=34))
+            augmented_data.extend(elastic_transform(img_batch, sigma=4, alpha=34))
 
             augmented_labels.extend(labels)
 
@@ -26,14 +26,16 @@ def augment_dataset(trainset_labeled, b=100, k=2):
     data = np.concatenate((trainset_labeled.train_data.numpy(), augmented_data))
     labels = np.concatenate((trainset_labeled.train_labels.numpy(), augmented_labels))
 
-    trainset_labeled.train_data = torch.from_numpy(data)
-    trainset_labeled.train_labels = torch.from_numpy(labels)
+    augmented = trainset_labeled.copy()
 
-    trainset_labeled.k = data.shape[0]
-    return trainset_labeled
+    augmented.train_data = torch.from_numpy(data)
+    augmented.train_labels = torch.from_numpy(labels)
+
+    augmented.k = data.shape[0]
+    return augmented
 
 
-def elastic_transform(img_batch, sigma=8, alpha=34):
+def elastic_transform(img_batch, sigma=4, alpha=34):
     img_batch = img_batch.numpy()
     x_dim = img_batch.shape[1]
     y_dim = img_batch.shape[2]
@@ -54,6 +56,6 @@ def elastic_transform(img_batch, sigma=8, alpha=34):
     batch_size = img_batch.shape[0]
 
     for i in range(batch_size):
-        transformed.append(map_coordinates(img_batch[i], elastic, order=0,
+        transformed.append(map_coordinates(img_batch[i], elastic, order=1,
                                            prefilter=False, mode='reflect'))
     return transformed
