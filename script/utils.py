@@ -26,13 +26,13 @@ def augment_dataset(trainset_labeled, b=100, k=2):
     data = np.concatenate((trainset_labeled.train_data.numpy(), augmented_data))
     labels = np.concatenate((trainset_labeled.train_labels.numpy(), augmented_labels))
 
-    augmented = trainset_labeled.copy()
+    # augmented = trainset_labeled.copy()
 
-    augmented.train_data = torch.from_numpy(data)
-    augmented.train_labels = torch.from_numpy(labels)
+    trainset_labeled.train_data = torch.from_numpy(data)
+    trainset_labeled.train_labels = torch.from_numpy(labels)
 
-    augmented.k = data.shape[0]
-    return augmented
+    trainset_labeled.k = data.shape[0]
+
 
 
 def elastic_transform(img_batch, sigma=4, alpha=34):
