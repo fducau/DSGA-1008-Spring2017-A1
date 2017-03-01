@@ -1,22 +1,22 @@
-from utils import augment_dataset
-import torch
-import torch.autograd as autograd
-import torch.optim as optim
+from utils import *
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import os
 from torch.autograd import Variable
-from tensorflow.examples.tutorials.mnist import input_data
 import torch.nn as nn
 import torch.nn.functional as F
-import pickle
+import torch
+import torch.autograd as autograd
+import torch.optim as optim
+
 
 cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 n_classes = 10
 mb_size = 32
-z_dim = 10
+z_dim = 
 X_dim = 784
 y_dim = 10
 h_dim = 128
@@ -93,14 +93,14 @@ class Q_net(nn.Module):
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
-        x = F.dropout(x, p=0.2, training=self.training)
+        # x = F.dropout(x, p=0.2, training=self.training)
         x = self.lin2(x)
-        x = F.dropout(x, p=0.2, training=self.training)
+        # x = F.dropout(x, p=0.2, training=self.training)
         x = F.relu(x)
 
         x1 = self.lin3a(x)
         x1 = F.relu(x1)
-        x1 = F.dropout(x1, p=0.2, training=self.training)
+        # x1 = F.dropout(x1, p=0.2, training=self.training)
         x1 = self.lin4a(x1)
         x1 = F.softmax(x1)
 
@@ -179,7 +179,7 @@ def train(P, Q, D_cat, D_gauss,
 
         X = X * 0.3081 + 0.1307
 
-        X.resize_(train_batch_size, X_dim)
+        #X.resize_(train_batch_size, X_dim)
         X, target = Variable(X), Variable(target)
 
         if cuda:
@@ -205,7 +205,7 @@ def train(P, Q, D_cat, D_gauss,
         Q.zero_grad()
         D_cat.zero_grad()
         D_gauss.zero_grad()
-
+        '''
         """ Regularization phase """
         # Discriminator
 
@@ -278,7 +278,7 @@ def train(P, Q, D_cat, D_gauss,
             Q.zero_grad()
             D_cat.zero_grad()
             D_gauss.zero_grad()
-
+    '''
         z_sample = torch.cat(Q(X), 1)
         if cuda:
             z_sample = z_sample.cuda()
@@ -286,10 +286,10 @@ def train(P, Q, D_cat, D_gauss,
 
         samples = P(z_sample)
         xsample = X
-        #D_loss_cat = recon_loss
-        #D_loss_gauss = recon_loss
-        #G_loss = recon_loss
-        #class_loss = recon_loss
+        D_loss_cat = recon_loss
+        D_loss_gauss = recon_loss
+        G_loss = recon_loss
+        class_loss = recon_loss
     return D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss, (samples.data[0], xsample.data[0])
 
 def report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss, samples=None):
@@ -381,7 +381,7 @@ P_solver = optim.SGD(P.parameters(), lr=0.1, momentum=0.9)
 D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=0.000001)
 D_cat_solver = optim.SGD(D_cat.parameters(), lr=0.000001)
 
-epochs = 50
+epochs = 25
 for epoch in range(epochs):
     D_loss_cat_u, D_loss_gauss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D_cat, D_gauss,
                                                                                P_solver, Q_solver,

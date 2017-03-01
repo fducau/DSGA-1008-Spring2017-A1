@@ -30,7 +30,7 @@ def plot_2d_labeled(Q, data_loader):
         colors = matplotlib.colors.cnames.keys()
         cindex = y.numpy()
         color = [colors[i] for i in cindex]
-        
+
 
         plt.scatter(z_sample[:,0], z_sample[:,1], c=color)
 
