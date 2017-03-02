@@ -11,20 +11,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as autograd
 import torch.optim as optim
+from torch.nn.modules.upsampling import UpsamplingNearest2d
+
 
 
 cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 n_classes = 10
 mb_size = 32
-z_dim = 10
+z_dim = 5
 X_dim = 784
 y_dim = 10
 h_dim = 128
 cnt = 0
 lr = 0.001
 momentum = 0.1
-
+convolutional = True
 train_batch_size = 50
 valid_batch_size = 50
 
@@ -103,7 +105,7 @@ class Q_net_conv(nn.Module):
         super(Q_net_conv, self).__init__()
         self.conv1 = nn.Conv2d(1, 100, kernel_size=5)
         self.conv2 = nn.Conv2d(100, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d(p=0.3)
+        self.conv2_drop = nn.Dropout2d(p=0.1)
         self.fc1 = nn.Linear(N, N)
         self.fc2 = nn.Linear(N, n_classes)
         self.fc3 = nn.Linear(N, z_dim)
@@ -119,7 +121,7 @@ class Q_net_conv(nn.Module):
         x = x.view(-1, 320)
 
         x1 = F.relu(self.fc1(x))
-        x1 = F.dropout(x1, p=0.3, training=self.training)
+        #x1 = F.dropout(x1, p=0.3, training=self.training)
         x1 = F.relu(self.fc2(x1))
         x1 = F.softmax(x1)
 
@@ -135,17 +137,18 @@ class P_net_conv(nn.Module):
     def __init__(self):
         super(P_net_conv, self).__init__()
         self.lin1 = nn.Linear(z_dim + n_classes, N)
-        self.conv1 = nn.ConvTranspose2d(100, 1, kernel_size=5)
-        self.conv2 = nn.ConvTranspose2d(20, 100, kernel_size=5)
+        self.conv1 = nn.Conv2d(75, 1, kernel_size=9)
+        self.conv2 = nn.Conv2d(20, 75, kernel_size=5)
         self.conv2_drop = nn.Dropout2d(p=0.5)
+        self.upsample2 = UpsamplingNearest2d(scale_factor=4)
+        self.upsample1 = UpsamplingNearest2d(scale_factor=3)
 
-    def forward(self, x, Q_conv):
+    def forward(self, x):
         x = F.relu(self.lin1(x))
         x = x.view(-1, 20, 4, 4)
-        x = F.max_unpool2d(x, Q_conv.pool2_idx, kernel_size=2, stride=2)
+        x = self.upsample2(x)
         x = self.conv2(x)
-                
-        x = F.max_unpool2d(x, Q_conv.pool1_idx, kernel_size=2, stride=2)
+        x = self.upsample1(x)
         x = self.conv1(x)
         x = F.sigmoid(x)
 
@@ -241,17 +244,21 @@ def pretest(model, epoch, valid_loader):
 
 def train(P, Q, D_cat, D_gauss,
           P_solver, Q_solver, D_cat_solver, D_gauss_solver,
-          train_labeled_loader, train_unlabeled_loader):
+          train_labeled_loader, train_unlabeled_loader=None):
 
     Q.train()
     P.train()
     D_cat.train()
     D_gauss.train()
 
+    if train_unlabeled_loader is None:
+        train_unlabeled_loader = train_labeled_loader
+
     # for batch_idx, (X, target) in enumerate(data_loader):
     for (X_l, target_l), (X_u, target_u) in itertools.izip(train_labeled_loader, train_unlabeled_loader):
         #if batch_idx * data_loader.batch_size + data_loader.batch_size > data_loader.dataset.k:
         #    continue
+
         for X, target in [(X_u, target_u), (X_l, target_l)]:
             if target[0] == -1:
                 labeled = False
@@ -262,20 +269,16 @@ def train(P, Q, D_cat, D_gauss,
             Q.zero_grad()
             D_cat.zero_grad()
             D_gauss.zero_grad()
-
             X = X * 0.3081 + 0.1307
-
-            # X.resize_(train_batch_size, X_dim)
+            if not convolutional:
+                X.resize_(train_batch_size, X_dim)
             X, target = Variable(X), Variable(target)
 
             if cuda:
                 X, target = X.cuda(), target.cuda()
 
-            recon_loss = 'NA'
-            # if not labeled:
             # Reconstruction phase
             if labeled:
-
                 target_one_hot = get_categorical(target)
                 if cuda:
                     target_one_hot = target_one_hot.cuda()
@@ -287,7 +290,7 @@ def train(P, Q, D_cat, D_gauss,
 
             if cuda:
                 z_sample = z_sample.cuda()
-            X_sample = P(z_sample, Q)
+            X_sample = P(z_sample)
 
             # Use epsilon to avoid log(0) case
             TINY = 1e-8
@@ -385,7 +388,7 @@ def train(P, Q, D_cat, D_gauss,
             if cuda:
                 z_sample = z_sample.cuda()
 
-            samples = P(z_sample, Q)
+            samples = P(z_sample)
             xsample = X
             # D_loss_cat = recon_loss
             # D_loss_gauss = recon_loss
@@ -467,8 +470,30 @@ def predict_cat(Q, data_loader):
 # Create and initialize Networks
 ##################################
 if cuda:
-    Q = Q_net_conv().cuda()
-    P = P_net().cuda()
+    if convolutional:
+        Q = Q_net_conv().cuda()
+        P = P_net_conv().cuda()
+    else:
+        Q = Q_net().cuda()
+        P = P_net().cuda()
+
+    D_cat = D_net_cat().cuda()
+    D_gauss = D_net_gauss().cuda()
+else:
+    Q = Q_net()
+    P = P_net()
+    D_gauss = D_net_gauss()
+    D_cat = D_net_cat()
+
+##################################
+if cuda:
+    if convolutional:
+        Q = Q_net_conv().cuda()
+        P = P_net_conv().cuda()
+    else:
+        Q = Q_net().cuda()
+        P = P_net().cuda()
+
     D_cat = D_net_cat().cuda()
     D_gauss = D_net_gauss().cuda()
 else:
@@ -495,22 +520,38 @@ train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
                                                      batch_size=train_batch_size,
                                                      shuffle=True, **kwargs)
 valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size, shuffle=True)
-epochs = 1000
+epochs = 500
 for epoch in range(epochs):
-    #D_loss_cat_u, D_loss_gauss_u, G_loss_u, recon_loss_u, _, samples_u = train(P, Q, D_cat, D_gauss,
-    #                                                                           P_solver, Q_solver,
-    #                                                                           D_cat_solver, D_gauss_solver,
-    #                                                                           train_unlabeled_loader)
-
     D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss, samples = train(P, Q, D_cat, D_gauss,
                                                                               P_solver, Q_solver,
                                                                               D_cat_solver, D_gauss_solver,
                                                                               train_labeled_loader,
                                                                               train_unlabeled_loader)
     if epoch % 10 == 0:
-        #print('Loss in UNLabeled')
-        #report_loss(D_loss_cat_u, D_loss_gauss_u, G_loss_u, recon_loss_u)
-        #print('Loss in Labeled')
+        report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss, samples)
+        print('Classification loss: {}'.format(class_loss.data[0]))
+
+# pretrain_epochs = 50
+# optimizer = optim.SGD(Q.parameters(), lr=0.001, momentum=0.4)
+# for epoch in range(pretrain_epochs):
+#     pretrain(Q, optimizer, epoch, train_labeled_loader)
+#     pretest(Q, epoch, valid_loader)
+
+train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled,
+                                                   batch_size=train_batch_size,
+                                                   shuffle=True, **kwargs)
+train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
+                                                     batch_size=train_batch_size,
+                                                     shuffle=True, **kwargs)
+valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size, shuffle=True)
+epochs = 500
+for epoch in range(epochs):
+    D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss, samples = train(P, Q, D_cat, D_gauss,
+                                                                              P_solver, Q_solver,
+                                                                              D_cat_solver, D_gauss_solver,
+                                                                              train_labeled_loader,
+                                                                              train_unlabeled_loader)
+    if epoch % 10 == 0:
         report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss, samples)
         print('Classification loss: {}'.format(class_loss.data[0]))
         print('Validation:')

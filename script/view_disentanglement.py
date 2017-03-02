@@ -1,40 +1,88 @@
-for X, target in train_labeled_loader:
-    break
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
 
-X = X * 0.3081 + 0.1307
-X = X[:10]
-target = target[:10]
+def get_X_batch(data_loader, size=None):
+    if size is None:
+        size = data_loader.batch_size
+    for X, target in data_loader:
+        break
 
-X.resize_(train_batch_size, X_dim)
-X, target = Variable(X), Variable(target)
+    if not convolutional:
+        X = X * 0.3081 + 0.1307
 
-if cuda:
-    X, target = X.cuda(), target.cuda()
+    X = X[:size]
+    target = target[:size]
 
-z_c, z_g = Q(X)
-z_o = torch.cat((z_c, z_g), 1)
+    if not convolutional:
+        X.resize_(train_batch_size, X_dim)
+    X, target = Variable(X), Variable(target)
 
-z_cat = np.arange(0, 10)
-z_cat = np.eye(n_classes)[z_cat].astype('float32')
-z_cat = torch.from_numpy(z_cat)
-z_cat = Variable(z_cat)
-if cuda:
-    z_cat = z_cat.cuda()
+    if cuda:
+        X, target = X.cuda(), target.cuda()  
 
-z_gauss = z_g[0].resize(1,z_dim)
-z_gauss0 = z_gauss[0].resize(1, z_dim)
+    return X
 
-for i in range(9):
-    z_gauss = torch.cat((z_gauss, z_gauss0), 0)
-    
-z = torch.cat((z_cat, z_gauss ), 1)
+def create_reconstruction(Q, P, data_loader):
+    X = get_X_batch(data_loader, size=1)
 
-if convolutional:
-    x = P(zi, Q)
-    x_o = P(z_o, Q)
-else:
+    z_c, z_g = Q(X)
+    z = torch.cat((z_c, z_g), 1)
     x = P(z)
 
-img = np.array(x[0].data.tolist()).reshape(28,28)
-img_o = np.array(x_o[0].data.tolist()).reshape(28,28)
-plt.imshow(img)
+    img_orig = np.array(X[0].data.tolist()).reshape(28,28)
+    img_rec = np.array(x[0].data.tolist()).reshape(28,28)
+    plt.subplot(1,2,1)
+    plt.imshow(img_orig)
+    plt.subplot(1,2,2)
+    plt.imshow(img_rec)
+
+
+def grid_plot(Q, P, data_loader):
+
+    z_c, z_g = create_latent(Q, data_loader)
+
+    z_cat = np.arange(0, 10)
+    z_cat = np.eye(n_classes)[z_cat].astype('float32')
+    z_cat = torch.from_numpy(z_cat)
+    z_cat = Variable(z_cat)
+    if cuda:
+        z_cat = z_cat.cuda()
+
+    nx, ny = 3, 10
+    plt.subplot()
+    gs = gridspec.GridSpec(nx, ny, hspace=0.05, wspace=0.05)
+
+    for i, g in enumerate(gs):
+        z_gauss = z_g[i/ny].resize(1, z_dim)
+        z_gauss0 = z_g[i/ny].resize(1, z_dim)
+
+        for _ in range(9):
+            z_gauss = torch.cat((z_gauss, z_gauss0), 0)
+
+        z = torch.cat((z_cat, z_gauss ), 1)
+        x = P(z)
+
+        ax = plt.subplot(g)
+        img = np.array(x[i%ny].data.tolist()).reshape(28,28)
+        ax.imshow(img)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_aspect('auto')
+
+
+#######
+    # z_gauss = z_g[0].resize(1, z_dim)
+    # z_gauss0 = z_g[0].resize(1, z_dim)
+
+    # for i in range(9):
+    #     z_gauss = torch.cat((z_gauss, z_gauss0), 0)
+
+    # z = torch.cat((z_cat, z_gauss ), 1)
+
+    # x = P(z)
+
+
+    #img = np.array(x[0].data.tolist()).reshape(28,28)
+    #img_o = np.array(x_o[0].data.tolist()).reshape(28,28)
+    #plt.imshow(img)
