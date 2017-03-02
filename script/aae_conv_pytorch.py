@@ -11,7 +11,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as autograd
 import torch.optim as optim
-from torch.nn.modules.upsampling import UpsamplingNearest2d
 
 
 cuda = torch.cuda.is_available()
@@ -25,7 +24,6 @@ h_dim = 128
 cnt = 0
 lr = 0.001
 momentum = 0.1
-convolutional = False
 
 train_batch_size = 50
 valid_batch_size = 50
@@ -105,7 +103,7 @@ class Q_net_conv(nn.Module):
         super(Q_net_conv, self).__init__()
         self.conv1 = nn.Conv2d(1, 100, kernel_size=5)
         self.conv2 = nn.Conv2d(100, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d(p=0.1)
+        self.conv2_drop = nn.Dropout2d(p=0.3)
         self.fc1 = nn.Linear(N, N)
         self.fc2 = nn.Linear(N, n_classes)
         self.fc3 = nn.Linear(N, z_dim)
@@ -121,12 +119,12 @@ class Q_net_conv(nn.Module):
         x = x.view(-1, 320)
 
         x1 = F.relu(self.fc1(x))
-        x1 = F.dropout(x1, p=0.1, training=self.training)
+        x1 = F.dropout(x1, p=0.3, training=self.training)
         x1 = F.relu(self.fc2(x1))
         x1 = F.softmax(x1)
 
         x2 = self.fc3(x)
-        x2 = F.dropout(x2, p=0.1, training=self.training)
+        # x2 = F.dropout(x2, training=self.training)
         # x2 = F.relu(self.fc4(x2))
 
         return x1, x2
@@ -137,19 +135,17 @@ class P_net_conv(nn.Module):
     def __init__(self):
         super(P_net_conv, self).__init__()
         self.lin1 = nn.Linear(z_dim + n_classes, N)
-        self.conv1 = nn.Conv2d(100, 1, kernel_size=9)
-        self.conv2 = nn.Conv2d(20, 100, kernel_size=5)
+        self.conv1 = nn.ConvTranspose2d(100, 1, kernel_size=5)
+        self.conv2 = nn.ConvTranspose2d(20, 100, kernel_size=5)
         self.conv2_drop = nn.Dropout2d(p=0.5)
-        self.upsample2 = UpsamplingNearest2d(scale_factor=4)
-        self.upsample1 = UpsamplingNearest2d(scale_factor=3)
-
 
     def forward(self, x, Q_conv):
         x = F.relu(self.lin1(x))
         x = x.view(-1, 20, 4, 4)
-        x = self.upsample2(x)
+        x = F.max_unpool2d(x, Q_conv.pool2_idx, kernel_size=2, stride=2)
         x = self.conv2(x)
-        x = self.upsample1(x)
+                
+        x = F.max_unpool2d(x, Q_conv.pool1_idx, kernel_size=2, stride=2)
         x = self.conv1(x)
         x = F.sigmoid(x)
 
@@ -164,7 +160,7 @@ class P_net(nn.Module):
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
-        # x = F.dropout(x, p=0.1, training=self.training)
+        # x = F.dropout(x, p=0., training=self.training)
         x = self.lin2(x)
         return F.sigmoid(x)
 
@@ -269,13 +265,14 @@ def train(P, Q, D_cat, D_gauss,
 
             X = X * 0.3081 + 0.1307
 
-            X.resize_(train_batch_size, X_dim)
+            # X.resize_(train_batch_size, X_dim)
             X, target = Variable(X), Variable(target)
 
             if cuda:
                 X, target = X.cuda(), target.cuda()
 
             recon_loss = 'NA'
+            # if not labeled:
             # Reconstruction phase
             if labeled:
 
@@ -290,11 +287,7 @@ def train(P, Q, D_cat, D_gauss,
 
             if cuda:
                 z_sample = z_sample.cuda()
-
-            if convolutional:
-                X_sample = P(z_sample, Q)
-            else:
-                X_sample = P(z_sample)
+            X_sample = P(z_sample, Q)
 
             # Use epsilon to avoid log(0) case
             TINY = 1e-8
@@ -392,12 +385,7 @@ def train(P, Q, D_cat, D_gauss,
             if cuda:
                 z_sample = z_sample.cuda()
 
-
-            if convolutional:
-                samples = P(z_sample, Q)
-            else:
-                samples = P(z_sample)
-
+            samples = P(z_sample, Q)
             xsample = X
             # D_loss_cat = recon_loss
             # D_loss_gauss = recon_loss
@@ -456,7 +444,7 @@ def predict_cat(Q, data_loader):
     for batch_idx, (X, target) in enumerate(data_loader):
 
         X = X * 0.3081 + 0.1307
-        X.resize_(data_loader.batch_size, X_dim)
+        #X.resize_(data_loader.batch_size, X_dim)
         X, target = Variable(X), Variable(target)
         labels.extend(target.data.tolist())
         if cuda:
@@ -479,11 +467,8 @@ def predict_cat(Q, data_loader):
 # Create and initialize Networks
 ##################################
 if cuda:
-    Q = Q_net().cuda()
-    if convolutional:
-        P = P_net_conv().cuda()
-    else:
-        P = P_net().cuda()
+    Q = Q_net_conv().cuda()
+    P = P_net().cuda()
     D_cat = D_net_cat().cuda()
     D_gauss = D_net_gauss().cuda()
 else:
