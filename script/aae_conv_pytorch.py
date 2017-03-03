@@ -23,11 +23,9 @@ mb_size = 32
 z_dim = 5
 X_dim = 784
 y_dim = 10
-h_dim = 128
 cnt = 0
-lr = 0.001
 momentum = 0.1
-convolutional = True
+convolutional = False
 train_batch_size = 50
 valid_batch_size = 50
 
@@ -170,6 +168,7 @@ class P_net(nn.Module):
         x = F.relu(x)
         # x = F.dropout(x, p=0., training=self.training)
         x = self.lin2(x)
+        x = self.lin3(x)
         return F.sigmoid(x)
 
 
@@ -292,13 +291,13 @@ def train(P, Q, D_cat, D_gauss,
             # Reconstruction phase
             if labeled:
                 target_one_hot = get_categorical(target)
+                if cuda:
+                    target_one_hot = target_one_hot(cuda)
+
                 _, z_gauss_sample = Q(X)
                 z_sample = torch.cat((target_one_hot, z_gauss_sample), 1)
             else:
                 z_sample = torch.cat(Q(X), 1)
-
-            if cuda:
-                z_sample = z_sample.cuda()
 
             X_sample = P(z_sample)
 
