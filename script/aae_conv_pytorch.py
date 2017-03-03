@@ -431,9 +431,7 @@ def predict_cat(Q, data_loader):
         correct += pred.eq(target.data).cpu().sum()
 
     test_loss /= len(data_loader)
-    print('\nAvg loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)'.format(
-          test_loss, correct, len(data_loader.dataset),
-          100. * correct / len(data_loader.dataset)))
+    return 100. * correct / len(data_loader.dataset)
 
 
 ##################################
@@ -480,7 +478,8 @@ for epoch in range(epochs):
                                                                      train_unlabeled_loader)
     if epoch % 10 == 0:
         report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss)
-        print('Validation: {}'.format(predict_cat(Q, valid_loader)))
+        print('Classification Loss: {:.3}'.format(class_loss.data[0]))
+        print('Validation accuracy: {} %'.format(predict_cat(Q, valid_loader)))
 
 train_end = time.time()
 predict_cat(Q, train_labeled_loader)
