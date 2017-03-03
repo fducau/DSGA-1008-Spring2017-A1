@@ -44,7 +44,8 @@ def grid_plot(Q, P, data_loader):
 
     Q.eval()
     P.eval()
-    z_c, z_g = create_latent(Q, data_loader)
+    X = get_X_batch(data_loader, size=10)
+    z_c, z_g = Q(X)
 
     z_cat = np.arange(0, 10)
     z_cat = np.eye(n_classes)[z_cat].astype('float32')
