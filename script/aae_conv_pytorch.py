@@ -485,33 +485,12 @@ else:
     D_gauss = D_net_gauss()
     D_cat = D_net_cat()
 
-##################################
-if cuda:
-    if convolutional:
-        Q = Q_net_conv().cuda()
-        P = P_net_conv().cuda()
-    else:
-        Q = Q_net().cuda()
-        P = P_net().cuda()
-
-    D_cat = D_net_cat().cuda()
-    D_gauss = D_net_gauss().cuda()
-else:
-    Q = Q_net()
-    P = P_net()
-    D_gauss = D_net_gauss()
-    D_cat = D_net_cat()
 
 Q_solver = optim.SGD(Q.parameters(), lr=0.1, momentum=0.9)
 P_solver = optim.SGD(P.parameters(), lr=0.1, momentum=0.9)
-D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=0.001)
-D_cat_solver = optim.SGD(D_cat.parameters(), lr=0.001)
+D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=0.01)
+D_cat_solver = optim.SGD(D_cat.parameters(), lr=0.01)
 
-# pretrain_epochs = 50
-# optimizer = optim.SGD(Q.parameters(), lr=0.001, momentum=0.4)
-# for epoch in range(pretrain_epochs):
-#     pretrain(Q, optimizer, epoch, train_labeled_loader)
-#     pretest(Q, epoch, valid_loader)
 
 train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled,
                                                    batch_size=train_batch_size,

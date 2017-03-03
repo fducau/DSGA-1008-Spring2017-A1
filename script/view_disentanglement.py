@@ -24,6 +24,8 @@ def get_X_batch(data_loader, size=None):
     return X
 
 def create_reconstruction(Q, P, data_loader):
+    Q.eval()
+    P.eval()
     X = get_X_batch(data_loader, size=1)
 
     z_c, z_g = Q(X)
@@ -40,6 +42,8 @@ def create_reconstruction(Q, P, data_loader):
 
 def grid_plot(Q, P, data_loader):
 
+    Q.eval()
+    P.eval()
     z_c, z_g = create_latent(Q, data_loader)
 
     z_cat = np.arange(0, 10)
