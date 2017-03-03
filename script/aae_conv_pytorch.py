@@ -1,3 +1,4 @@
+import time
 from utils import *
 import torch
 import pickle
@@ -488,8 +489,8 @@ else:
 
 Q_solver = optim.SGD(Q.parameters(), lr=0.1, momentum=0.9)
 P_solver = optim.SGD(P.parameters(), lr=0.1, momentum=0.9)
-D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=0.01)
-D_cat_solver = optim.SGD(D_cat.parameters(), lr=0.01)
+D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=0.001)
+D_cat_solver = optim.SGD(D_cat.parameters(), lr=0.001)
 
 
 train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled,
@@ -523,7 +524,9 @@ train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
                                                      batch_size=train_batch_size,
                                                      shuffle=True, **kwargs)
 valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size, shuffle=True)
-epochs = 500
+
+epochs = 1000
+train_start = time.time()
 for epoch in range(epochs):
     D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss, samples = train(P, Q, D_cat, D_gauss,
                                                                               P_solver, Q_solver,
@@ -537,5 +540,7 @@ for epoch in range(epochs):
         predict_cat(Q, valid_loader)
 
 
+train_end = time.time()
 predict_cat(Q, train_labeled_loader)
 predict_cat(Q, valid_loader)
+print('Total train time: {} seconds'.format(train_end - train_start))
