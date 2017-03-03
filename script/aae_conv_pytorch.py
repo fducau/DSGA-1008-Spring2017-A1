@@ -292,7 +292,7 @@ def train(P, Q, D_cat, D_gauss,
             if labeled:
                 target_one_hot = get_categorical(target)
                 if cuda:
-                    target_one_hot = target_one_hot(cuda)
+                    target_one_hot = target_one_hot.cuda()
 
                 _, z_gauss_sample = Q(X)
                 z_sample = torch.cat((target_one_hot, z_gauss_sample), 1)
@@ -316,7 +316,7 @@ def train(P, Q, D_cat, D_gauss,
 
             # Classification Loss
             if labeled:
-                pred, _ = torch.cat(Q(X))
+                pred, _ = Q(X)
                 class_loss = F.cross_entropy(pred, target)
                 class_loss.backward()
                 Q_encoder.step()
@@ -380,25 +380,11 @@ def train(P, Q, D_cat, D_gauss,
             # class_loss = recon_loss
     return D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss
 
-def report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss, samples=None):
+def report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss):
         print('Epoch-{}; D_loss_cat: {:.4}: D_loss_gauss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
               .format(epoch, D_loss_cat.data[0], D_loss_gauss.data[0],
                       G_loss.data[0], recon_loss.data[0]))
 
-        # if samples is not None:
-            # img = np.array(samples[0].tolist()).reshape(28, 28)
-            # plt.imshow(img, cmap='hot')
-
-            # plt.savefig('out/{}.png'
-            #             .format(str(epoch).zfill(3)), bbox_inches='tight')
-
-            # img = np.array(samples[1].tolist()).reshape(28, 28)
-            # plt.imshow(img, cmap='hot')
-
-            # plt.savefig('out/{}_orig.png'
-            #             .format(str(epoch).zfill(3)), bbox_inches='tight')
-
-           # plt.close()
 
 def create_latent(Q, loader):
     Q.eval()
@@ -429,9 +415,9 @@ def predict_cat(Q, data_loader):
     correct = 0
 
     for batch_idx, (X, target) in enumerate(data_loader):
-
         X = X * 0.3081 + 0.1307
-        # X.resize_(data_loader.batch_size, X_dim)
+        if not convolutional:
+            X.resize_(data_loader.batch_size, X_dim)
         X, target = Variable(X), Variable(target)
         labels.extend(target.data.tolist())
         if cuda:
@@ -486,14 +472,14 @@ valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size
 epochs = 1000
 train_start = time.time()
 for epoch in range(epochs):
-    D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss, samples = train(P, Q, D_cat,
-                                                                              D_gauss, P_decoder,
-                                                                              Q_encoder, Q_generator,
-                                                                              D_cat_solver, D_gauss_solver,
-                                                                              train_labeled_loader,
-                                                                              train_unlabeled_loader)
+    D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss = train(P, Q, D_cat,
+                                                                     D_gauss, P_decoder,
+                                                                     Q_encoder, Q_generator,
+                                                                     D_cat_solver, D_gauss_solver,
+                                                                     train_labeled_loader,
+                                                                     train_unlabeled_loader)
     if epoch % 10 == 0:
-        report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss, samples)
+        report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss)
         print('Validation: {}'.format(predict_cat(Q, valid_loader)))
 
 train_end = time.time()
