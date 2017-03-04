@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import os
 import itertools
+from vizualization import * 
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,14 +21,14 @@ cuda = torch.cuda.is_available()
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 n_classes = 10
 mb_size = 32
-z_dim = 5
+z_dim = 10
 X_dim = 784
 y_dim = 10
 cnt = 0
 momentum = 0.1
 convolutional = False
-train_batch_size = 50
-valid_batch_size = 50
+train_batch_size = 100
+valid_batch_size = 100
 
 
 ##################################
@@ -72,32 +73,38 @@ class Q_net(nn.Module):
         super(Q_net, self).__init__()
         self.lin1 = nn.Linear(X_dim, N)
         self.lin2 = nn.Linear(N, N)
+        self.lin3 = nn.Linear(N, n_classes + z_dim)
         # Categorical code
-        self.lin3cat = nn.Linear(N, n_classes)
-        # self.lin4cat = nn.Linear(N, n_classes)
+        self.lin3cat = nn.Linear(N, N)
+        self.lin4cat = nn.Linear(N, n_classes)
 
         # Gaussian
-        self.lin3gauss = nn.Linear(N, z_dim)        
-        # self.lin4b = nn.Linear(N, z_dim)
+        self.lin3gauss = nn.Linear(N, N)        
+        self.lin4gauss = nn.Linear(N, z_dim)
 
     def forward(self, x):
         x = self.lin1(x)
-        # x = F.dropout(x, p=0.2, training=self.training)
+        x = F.dropout(x, p=0.4, training=self.training)
         x = F.relu(x)
         x = self.lin2(x)
-        # x = F.dropout(x, p=0.2, training=self.training)
+        x = F.dropout(x, p=0.4, training=self.training)
         x = F.relu(x)
+        x = self.lin3(x)
 
-        xcat = self.lin3cat(x)
-        # x1 = F.relu(x1)
-        # x1 = F.dropout(x1, p=0.2, training=self.training)
-        #x1 = self.lin4a(x1)
-        xcat = F.softmax(xcat)
+        xcat = F.softmax(x[:,:n_classes])
+        xgauss = x[:,n_classes:]
 
-        xgauss = self.lin3gauss(x)
-        # x2 = F.tanh(x2)
-        #x2 = self.lin4b(x2)
-        #x2 = F.relu(x2)
+
+
+#        xcat = self.lin3cat(x)
+#        xcat = F.relu(xcat)
+#        # x1 = F.dropout(x1, p=0.2, training=self.training)
+#        xcat = self.lin4cat(xcat)
+#        xcat = F.softmax(xcat)
+
+#        xgauss = self.lin3gauss(x)
+#        xgauss = F.relu(xgauss)
+#        xgauss = self.lin4gauss(xgauss)
 
         return xcat, xgauss
 
@@ -165,9 +172,10 @@ class P_net(nn.Module):
 
     def forward(self, x):
         x = self.lin1(x)
+        # x = F.dropout(x, p=0.2, training=self.training)
         x = F.relu(x)
-        # x = F.dropout(x, p=0., training=self.training)
         x = self.lin2(x)
+        # x = F.dropout(x, p=0.2, training=self.training)
         x = self.lin3(x)
         return F.sigmoid(x)
 
@@ -303,7 +311,9 @@ def train(P, Q, D_cat, D_gauss,
 
             # Use epsilon to avoid log(0) case
             TINY = 1e-8
-            recon_loss = F.binary_cross_entropy(X_sample + TINY, X.resize(train_batch_size, X_dim) + TINY)
+            # recon_loss = F.binary_cross_entropy(X_sample + TINY, X.resize(train_batch_size, X_dim) + TINY)
+            mse_loss = torch.nn.MSELoss()
+            recon_loss = mse_loss(X_sample, X.resize(train_batch_size, X_dim))
 
             recon_loss.backward()
             P_decoder.step()
@@ -411,7 +421,7 @@ def create_latent(Q, loader):
 def predict_cat(Q, data_loader):
     Q.eval()
     labels = []
-    test_loss = 0
+    test_loss = 0   
     correct = 0
 
     for batch_idx, (X, target) in enumerate(data_loader):
@@ -455,7 +465,7 @@ else:
 
 P_decoder = optim.SGD(P.parameters(), lr=0.1, momentum=0.9)
 Q_encoder = optim.SGD(Q.parameters(), lr=0.1, momentum=0.9)
-Q_generator = optim.SGD(Q.parameters(), lr=0.1, momentum=0.1)
+Q_generator = optim.SGD(Q.parameters(), lr=0.001, momentum=0.1)
 D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=0.001, momentum=0.1)
 D_cat_solver = optim.SGD(D_cat.parameters(), lr=0.001, momentum=0.1)
 
@@ -467,7 +477,7 @@ train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
                                                      shuffle=True, **kwargs)
 valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size,
                                            shuffle=True)
-epochs = 1000
+epochs = 500
 train_start = time.time()
 for epoch in range(epochs):
     D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss = train(P, Q, D_cat,
@@ -482,6 +492,6 @@ for epoch in range(epochs):
         print('Validation accuracy: {} %'.format(predict_cat(Q, valid_loader)))
 
 train_end = time.time()
-predict_cat(Q, train_labeled_loader)
-predict_cat(Q, valid_loader)
+print predict_cat(Q, train_labeled_loader)
+print predict_cat(Q, valid_loader)
 print('Total train time: {} seconds'.format(train_end - train_start))

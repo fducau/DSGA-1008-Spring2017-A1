@@ -41,7 +41,6 @@ def create_reconstruction(Q, P, data_loader):
 
 
 def grid_plot(Q, P, data_loader):
-
     Q.eval()
     P.eval()
     X = get_X_batch(data_loader, size=10)
