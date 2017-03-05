@@ -63,8 +63,10 @@ train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
 
 valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size, shuffle=True)
 
-
-N = 640
+if convolutional:
+    N = 640
+else:
+    N = 1000 
 ##################################
 # Define Networks
 ##################################
@@ -534,9 +536,9 @@ if convolutional:
     semi_lr = 0.1
     reg_lr = 0.01
 else:
-    gen_lr = 0.0001
+    gen_lr = 0.01
     semi_lr = 0.001
-    reg_lr = 0.0001
+    reg_lr = 0.001
 
 
 if convolutional:
