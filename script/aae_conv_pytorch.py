@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import os
+import nninit
 import itertools
 from vizualization import * 
 from torch.autograd import Variable
@@ -44,7 +45,7 @@ trainset_unlabeled.train_labels = torch.from_numpy(np.array([-1] * 47000))
 validset = pickle.load(open(data_path + "validation.p", "rb"))
 
 #print('Augmenting dataset!')
-#augment_dataset(trainset_labeled, b=100, k=8)
+#augment_dataset(trainset_labeled, b=100, k=2)
 
 #print('Augmented dataset to size: {}'.format(trainset_labeled.k)) 
 
@@ -57,12 +58,13 @@ train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled,
 #                                                   shuffle=True, **kwargs)
 
 train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
-                                                     batch_size=783,
+                                                     batch_size=train_batch_size,
                                                      shuffle=True, **kwargs)
 
 valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size, shuffle=True)
 
-N = 1000
+
+N = 1280
 ##################################
 # Define Networks
 ##################################
@@ -72,52 +74,46 @@ class Q_net(nn.Module):
     def __init__(self):
         super(Q_net, self).__init__()
         self.lin1 = nn.Linear(X_dim, N)
+        nninit.kaiming_uniform(self.lin1.weight)
         self.lin2 = nn.Linear(N, N)
-        self.lin3 = nn.Linear(N, n_classes + z_dim)
+        nninit.kaiming_uniform(self.lin2.weight)
         # Categorical code
-        self.lin3cat = nn.Linear(N, N)
-        self.lin4cat = nn.Linear(N, n_classes)
+        self.lin3cat = nn.Linear(N, n_classes)
+        nninit.kaiming_uniform(self.lin3cat.weight)
+        # self.lin4cat = nn.Linear(N, n_classes)
 
         # Gaussian
-        self.lin3gauss = nn.Linear(N, N)        
-        self.lin4gauss = nn.Linear(N, z_dim)
+        self.lin3gauss = nn.Linear(N, z_dim)        
+        nninit.kaiming_uniform(self.lin3gauss.weight)
+        # self.lin4gauss = nn.Linear(N, z_dim)
 
     def forward(self, x):
         x = self.lin1(x)
-        x = F.dropout(x, p=0.4, training=self.training)
+        x = F.dropout(x, p=0.3, training=self.training)
         x = F.relu(x)
         x = self.lin2(x)
-        x = F.dropout(x, p=0.4, training=self.training)
+        x = F.dropout(x, p=0.3, training=self.training)
         x = F.relu(x)
-        x = self.lin3(x)
 
-        xcat = F.softmax(x[:,:n_classes])
-        xgauss = x[:,n_classes:]
-
-
-
-#        xcat = self.lin3cat(x)
-#        xcat = F.relu(xcat)
-#        # x1 = F.dropout(x1, p=0.2, training=self.training)
-#        xcat = self.lin4cat(xcat)
-#        xcat = F.softmax(xcat)
-
-#        xgauss = self.lin3gauss(x)
-#        xgauss = F.relu(xgauss)
-#        xgauss = self.lin4gauss(xgauss)
+        xcat = F.softmax(self.lin3cat(x))
+        xgauss = self.lin3gauss(x)
 
         return xcat, xgauss
 
 class Q_net_conv(nn.Module):
     def __init__(self):
         super(Q_net_conv, self).__init__()
-        self.conv1 = nn.Conv2d(1, 100, kernel_size=3)
-        self.conv2 = nn.Conv2d(100, 20, kernel_size=6)
-        self.conv2_drop = nn.Dropout2d(p=0.1)
+        self.conv1 = nn.Conv2d(1, 300, kernel_size=5)
+        nninit.kaiming_uniform(self.conv1.weight)
+        self.conv2 = nn.Conv2d(300, 80, kernel_size=5)
+        nninit.kaiming_uniform(self.conv2.weight)
+        self.conv2_drop = nn.Dropout2d(p=0.01)
 
-        self.lin1cat = nn.Linear(N, N)
+        self.lin1cat = nn.Linear(N, n_classes)
+        nninit.kaiming_uniform(self.lin1cat.weight)
         self.lin2cat = nn.Linear(N, n_classes)
         self.lin1gauss = nn.Linear(N, z_dim)
+        nninit.kaiming_uniform(self.lin1gauss.weight)
         self.lin2gauss = nn.Linear(N, z_dim)
 
     def forward(self, x):
@@ -125,15 +121,15 @@ class Q_net_conv(nn.Module):
         x = F.relu(x)
         x = F.max_pool2d(self.conv2_drop(self.conv2(x)), 2, stride=2)
         x = F.relu(x)
-        x = x.view(-1, 320)
+        x = x.view(-1, N)
 
         xcat = F.relu(self.lin1cat(x))
         # x1 = F.dropout(x1, p=0.3, training=self.training)
-        xcat = F.relu(self.lin2cat(xcat))
-        xcat = F.softmax(x1)
+        # xcat = F.relu(self.lin2cat(xcat))
+        xcat = F.softmax(xcat)
 
         xgauss = self.lin1gauss(x)
-        xgauss = F.relu(xgauss)
+        # xgauss = F.relu(xgauss)
         # xgauss = F.dropout(xgauss, training=self.training)
         # xgauss = self.lin2gauss(xgauss)
 
@@ -145,15 +141,18 @@ class P_net_conv(nn.Module):
     def __init__(self):
         super(P_net_conv, self).__init__()
         self.lin1 = nn.Linear(z_dim + n_classes, N)
-        self.conv1 = nn.Conv2d(100, 1, kernel_size=9)
-        self.conv2 = nn.Conv2d(20, 100, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d(p=0.5)
-        self.upsample2 = UpsamplingNearest2d(scale_factor=4)
-        self.upsample1 = UpsamplingNearest2d(scale_factor=3)
+        nninit.kaiming_uniform(self.lin1.weight)
+        self.conv1 = nn.Conv2d(300, 1, kernel_size=5)
+        nninit.kaiming_uniform(self.conv1.weight)
+        self.conv2 = nn.Conv2d(80, 300, kernel_size=5)
+        nninit.kaiming_uniform(self.conv2.weight)
+        self.conv2_drop = nn.Dropout2d(p=0.01)
+        self.upsample2 = UpsamplingNearest2d(scale_factor=3)
+        self.upsample1 = UpsamplingNearest2d(scale_factor=4)
 
     def forward(self, x):
         x = F.relu(self.lin1(x))
-        x = x.view(-1, 20, 4, 4)
+        x = x.view(-1, 80, 4, 4)
         x = self.upsample2(x)
         x = self.conv2(x)
         x = self.upsample1(x)
@@ -166,9 +165,12 @@ class P_net_conv(nn.Module):
 class P_net(nn.Module):
     def __init__(self):
         super(P_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim + 10, N)
+        self.lin1 = nn.Linear(z_dim + n_classes, N)
+        nninit.kaiming_uniform(self.lin1.weight)
         self.lin2 = nn.Linear(N, N)
+        nninit.kaiming_uniform(self.lin2.weight)
         self.lin3 = nn.Linear(N, X_dim)
+        nninit.kaiming_uniform(self.lin3.weight)
 
     def forward(self, x):
         x = self.lin1(x)
@@ -185,13 +187,16 @@ class D_net_cat(nn.Module):
     def __init__(self):
         super(D_net_cat, self).__init__()
         self.lin1 = nn.Linear(10, N)
-        self.lin2 = nn.Linear(N, 1)
+        self.lin2 = nn.Linear(N, N)
+        self.lin3 = nn.Linear(N, 1)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
         # x = F.dropout(x, p=0.2, training=self.training)
         x = self.lin2(x)
+        x = F.relu(x)
+        x = self.lin3(x)
         return F.sigmoid(x)
 
 
@@ -199,13 +204,16 @@ class D_net_gauss(nn.Module):
     def __init__(self):
         super(D_net_gauss, self).__init__()
         self.lin1 = nn.Linear(z_dim, N)
-        self.lin2 = nn.Linear(N, 1)
+        self.lin2 = nn.Linear(N, N)
+        self.lin3 = nn.Linear(N, 1)
 
     def forward(self, x):
         x = self.lin1(x)
         x = F.relu(x)
         # x = F.dropout(x, p=0.2, training=self.training)
         x = self.lin2(x)
+        x = F.relu(x)
+        x = self.lin3(x)
         return F.sigmoid(x)
 
 
@@ -260,9 +268,11 @@ def pretest(model, epoch, valid_loader):
 
 
 def train(P, Q, D_cat, D_gauss,
-          P_decoder, Q_encoder, Q_generator, D_cat_solver, D_gauss_solver,
-          train_labeled_loader, train_unlabeled_loader=None):
-
+          P_decoder, Q_encoder, Q_semi_supervised, Q_generator,
+          D_cat_solver, D_gauss_solver,
+          train_labeled_loader, train_unlabeled_loader):
+    
+    TINY = 1e-15
     Q.train()
     P.train()
     D_cat.train()
@@ -284,11 +294,22 @@ def train(P, Q, D_cat, D_gauss,
 
             # Load batch
             X = X * 0.3081 + 0.1307
+            gaussian_length = train_batch_size * 28 * 28
+            means = torch.from_numpy(np.array([0.] * gaussian_length).astype('float32'))
+            stds = torch.from_numpy(np.array([0.3] * gaussian_length).astype('float32'))
+            gaussian_noise = torch.normal(means, stds)
+            gaussian_noise.resize_as_(X)
+
+            X_noise = X + gaussian_noise
             if not convolutional:
                 X.resize_(train_batch_size, X_dim)
+                X_noise.resize_(train_batch_size, X_dim)
+
             X, target = Variable(X), Variable(target)
+            X_noise = Variable(X_noise)
             if cuda:
                 X, target = X.cuda(), target.cuda()
+                X_noise = X_noise.cuda()
 
             # Init gradients
             P.zero_grad()
@@ -297,98 +318,131 @@ def train(P, Q, D_cat, D_gauss,
             D_gauss.zero_grad()
 
             # Reconstruction phase
-            if labeled:
-                target_one_hot = get_categorical(target)
-                if cuda:
-                    target_one_hot = target_one_hot.cuda()
+            if not labeled:
+                z_sample = torch.cat(Q(X_noise), 1)
+                X_sample = P(z_sample)
 
-                _, z_gauss_sample = Q(X)
-                z_sample = torch.cat((target_one_hot, z_gauss_sample), 1)
-            else:
-                z_sample = torch.cat(Q(X), 1)
+                recon_loss = F.binary_cross_entropy(X_sample + TINY, X.resize(train_batch_size, X_dim) + TINY)
+                # mse_loss = torch.nn.MSELoss()
+                # recon_loss = mse_loss(X_sample, X.resize(train_batch_size, X_dim))
 
-            X_sample = P(z_sample)
-
-            # Use epsilon to avoid log(0) case
-            TINY = 1e-8
-            # recon_loss = F.binary_cross_entropy(X_sample + TINY, X.resize(train_batch_size, X_dim) + TINY)
-            mse_loss = torch.nn.MSELoss()
-            recon_loss = mse_loss(X_sample, X.resize(train_batch_size, X_dim))
-
-            recon_loss.backward()
-            P_decoder.step()
-            Q_encoder.step()
-
-            P.zero_grad()
-            Q.zero_grad()
-            D_cat.zero_grad()
-            D_gauss.zero_grad()
-
-            # Classification Loss
-            if labeled:
-                pred, _ = Q(X)
-                class_loss = F.cross_entropy(pred, target)
-                class_loss.backward()
+                recon_loss.backward()
+                P_decoder.step()
                 Q_encoder.step()
 
                 P.zero_grad()
                 Q.zero_grad()
                 D_cat.zero_grad()
                 D_gauss.zero_grad()
-            else:
-                class_loss = Variable(torch.from_numpy(np.array([-1.])))
 
-            """ Regularization phase """
-            # Discriminator
-            Q.eval()
-            z_real_cat = sample_categorical(train_batch_size, n_classes=10)
-            z_real_gauss = Variable(torch.randn(train_batch_size, z_dim))
-            if cuda:
-                z_real_cat = z_real_cat.cuda()
-                z_real_gauss = z_real_gauss.cuda()
+                """ Regularization phase """
+                # Discriminator
+                Q.eval()
+                z_real_cat = sample_categorical(train_batch_size, n_classes=10)
+                z_real_gauss = Variable(torch.randn(train_batch_size, z_dim))
+                if cuda:
+                    z_real_cat = z_real_cat.cuda()
+                    z_real_gauss = z_real_gauss.cuda()
 
-            z_fake_cat, z_fake_gauss = Q(X)
+                z_fake_cat, z_fake_gauss = Q(X)
 
-            D_real_cat = D_cat(z_real_cat)
-            D_real_gauss = D_gauss(z_real_gauss)
-            D_fake_cat = D_cat(z_fake_cat)
-            D_fake_gauss = D_gauss(z_fake_gauss)
+                D_real_cat = D_cat(z_real_cat)
+                D_real_gauss = D_gauss(z_real_gauss)
+                D_fake_cat = D_cat(z_fake_cat)
+                D_fake_gauss = D_gauss(z_fake_gauss)
 
-            D_loss_cat = -torch.mean(torch.log(D_real_cat + TINY) + torch.log(1 - D_fake_cat + TINY))
-            D_loss_gauss = -torch.mean(torch.log(D_real_gauss + TINY) + torch.log(1 - D_fake_gauss + TINY))
+                D_loss_cat = -torch.mean(torch.log(D_real_cat + TINY) + torch.log(1 - D_fake_cat + TINY))
+                D_loss_gauss = -torch.mean(torch.log(D_real_gauss + TINY) + torch.log(1 - D_fake_gauss + TINY))
 
-            D_loss = D_loss_cat + D_loss_gauss
+                D_loss = D_loss_cat + D_loss_gauss
 
-            D_loss.backward()
-            D_cat_solver.step()
-            D_gauss_solver.step()
+                D_loss.backward()
+                D_cat_solver.step()
+                D_gauss_solver.step()
 
-            P.zero_grad()
-            Q.zero_grad()
-            D_cat.zero_grad()
-            D_gauss.zero_grad()
+                P.zero_grad()
+                Q.zero_grad()
+                D_cat.zero_grad()
+                D_gauss.zero_grad()
 
-            # Generator
-            Q.train()
-            z_fake_cat, z_fake_gauss = Q(X)
+                # Generator
+                Q.train()
+                z_fake_cat, z_fake_gauss = Q(X)
 
-            D_fake_cat = D_cat(z_fake_cat)
-            D_fake_gauss = D_gauss(z_fake_gauss)
+                D_fake_cat = D_cat(z_fake_cat)
+                D_fake_gauss = D_gauss(z_fake_gauss)
 
-            G_loss = - torch.mean(torch.log(D_fake_cat + TINY)) - torch.mean(torch.log(D_fake_gauss + TINY))
-            G_loss.backward()
-            Q_generator.step()
+                G_loss = - torch.mean(torch.log(D_fake_cat + TINY)) - torch.mean(torch.log(D_fake_gauss + TINY))
+                G_loss.backward()
+                Q_generator.step()
 
-            P.zero_grad()
-            Q.zero_grad()
-            D_cat.zero_grad()
-            D_gauss.zero_grad()
+                P.zero_grad()
+                Q.zero_grad()
+                D_cat.zero_grad()
+                D_gauss.zero_grad()
+
+                #pseudo_labels = predict_labels(Q, X)
+                #pred, _ = Q(X)
+                #class_loss = F.cross_entropy(pred, pseudo_labels)
+                #class_loss.backward()
+                #Q_pseudo.step()
+
+                #P.zero_grad()
+                #Q.zero_grad()
+                #D_cat.zero_grad()
+                #D_gauss.zero_grad()
+
+            # Classification Loss
+            if labeled:
+                pred, _ = Q(X)
+                class_loss = F.cross_entropy(pred, target)
+                class_loss.backward()
+                Q_semi_supervised.step()
+
+                P.zero_grad()
+                Q.zero_grad()
+                D_cat.zero_grad()
+                D_gauss.zero_grad()
+
+            
+
 
             # D_loss_cat = recon_loss
             # D_loss_gauss = recon_loss
             # G_loss = recon_loss
             # class_loss = recon_loss
     return D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss
+
+def pretrain(Q, Q_semi_supervised, data_loader):
+    for batch_idx, (X, target) in enumerate(data_loader):
+        # Load batch
+        X = X * 0.3081 + 0.1307
+        gaussian_length = train_batch_size * 28 * 28
+        means = torch.from_numpy(np.array([0.] * gaussian_length).astype('float32'))
+        stds = torch.from_numpy(np.array([0.3] * gaussian_length).astype('float32'))
+        gaussian_noise = torch.normal(means, stds)
+        gaussian_noise.resize_as_(X)
+        X_noise = X + gaussian_noise
+        if not convolutional:
+            X.resize_(train_batch_size, X_dim)
+            X_noise.resize_(train_batch_size, X_dim)
+        X, target = Variable(X), Variable(target)
+        X_noise = Variable(X_noise)
+        
+        if cuda:
+            X, target = X.cuda(), target.cuda()
+            X_noise = X_noise.cuda()
+
+        # Init gradients
+        Q.zero_grad()
+        pred, _ = Q(X)
+        class_loss = F.cross_entropy(pred, target)
+        class_loss.backward()
+        Q_semi_supervised.step()
+
+        Q.zero_grad()
+
+
 
 def report_loss(D_loss_cat, D_loss_gauss, G_loss, recon_loss):
         print('Epoch-{}; D_loss_cat: {:.4}: D_loss_gauss: {:.4}; G_loss: {:.4}; recon_loss: {:.4}'
@@ -417,6 +471,14 @@ def create_latent(Q, loader):
     labels = np.array(labels)
 
     return z_values, labels
+
+def predict_labels(Q, X):
+    Q.eval()
+    output = Q(X)[0]
+    pl = output.data.max(1)[1]
+    pl.resize_(X.size()[0])
+    return Variable(pl)
+
 
 def predict_cat(Q, data_loader):
     Q.eval()
@@ -463,11 +525,36 @@ else:
     D_gauss = D_net_gauss()
     D_cat = D_net_cat()
 
-P_decoder = optim.SGD(P.parameters(), lr=0.1, momentum=0.9)
-Q_encoder = optim.SGD(Q.parameters(), lr=0.1, momentum=0.9)
-Q_generator = optim.SGD(Q.parameters(), lr=0.001, momentum=0.1)
-D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=0.001, momentum=0.1)
-D_cat_solver = optim.SGD(D_cat.parameters(), lr=0.001, momentum=0.1)
+if convolutional:
+    gen_lr = 0.01
+    semi_lr = 0.1
+    reg_lr = 0.01
+else:
+    gen_lr = 0.001
+    semi_lr = 0.001
+    reg_lr = 0.0001
+
+P_decoder = optim.SGD(P.parameters(), lr=gen_lr, momentum=0.9)
+Q_encoder = optim.SGD(Q.parameters(), lr=gen_lr, momentum=0.9)
+
+Q_semi_supervised = optim.SGD(Q.parameters(), lr=semi_lr, momentum=0.9)
+
+
+Q_generator = optim.SGD(Q.parameters(), lr=reg_lr, momentum=0.1)
+D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=reg_lr, momentum=0.1)
+D_cat_solver = optim.SGD(D_cat.parameters(), lr=reg_lr, momentum=0.1)
+
+
+
+P_decoder = optim.Adam(P.parameters(), lr=gen_lr)
+Q_encoder = optim.Adam(Q.parameters(), lr=gen_lr)
+
+Q_semi_supervised = optim.Adam(Q.parameters(), lr=semi_lr)
+
+Q_generator = optim.Adam(Q.parameters(), lr=reg_lr)
+D_gauss_solver = optim.Adam(D_gauss.parameters(), lr=reg_lr)
+D_cat_solver = optim.Adam(D_cat.parameters(), lr=reg_lr)
+
 
 train_labeled_loader = torch.utils.data.DataLoader(trainset_labeled,
                                                    batch_size=train_batch_size,
@@ -477,12 +564,24 @@ train_unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled,
                                                      shuffle=True, **kwargs)
 valid_loader = torch.utils.data.DataLoader(validset, batch_size=valid_batch_size,
                                            shuffle=True)
-epochs = 500
+
+epochs = 5000
 train_start = time.time()
 for epoch in range(epochs):
+    if epoch == 500 or epoch == 1000:
+        P_decoder = optim.Adam(P.parameters(), lr=gen_lr/10.)
+        Q_encoder = optim.Adam(Q.parameters(), lr=gen_lr/10.)
+
+        Q_semi_supervised = optim.Adam(Q.parameters(), lr=semi_lr/10.)
+
+        Q_generator = optim.Adam(Q.parameters(), lr=reg_lr/10.)
+        D_gauss_solver = optim.Adam(D_gauss.parameters(), lr=reg_lr/10.)
+        D_cat_solver = optim.Adam(D_cat.parameters(), lr=reg_lr/10.)
+
     D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss = train(P, Q, D_cat,
                                                                      D_gauss, P_decoder,
-                                                                     Q_encoder, Q_generator,
+                                                                     Q_encoder, Q_semi_supervised,
+                                                                     Q_generator,
                                                                      D_cat_solver, D_gauss_solver,
                                                                      train_labeled_loader,
                                                                      train_unlabeled_loader)
