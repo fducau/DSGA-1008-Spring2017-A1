@@ -67,6 +67,8 @@ if convolutional:
     N = 640
 else:
     N = 1000 
+
+c_dim = 20
 ##################################
 # Define Networks
 ##################################
@@ -80,7 +82,7 @@ class Q_net(nn.Module):
         self.lin2 = nn.Linear(N, N)
         nninit.kaiming_uniform(self.lin2.weight)
         # Categorical code
-        self.lin3cat = nn.Linear(N, n_classes)
+        self.lin3cat = nn.Linear(N, c_dim)
         nninit.kaiming_uniform(self.lin3cat.weight)
         # self.lin4cat = nn.Linear(N, n_classes)
 
@@ -91,10 +93,10 @@ class Q_net(nn.Module):
 
     def forward(self, x):
         x = self.lin1(x)
-        x = F.dropout(x, p=0.5, training=self.training)
+        x = F.dropout(x, p=0.1, training=self.training)
         x = F.relu(x)
         x = self.lin2(x)
-        x = F.dropout(x, p=0.5, training=self.training)
+        x = F.dropout(x, p=0.1, training=self.training)
         x = F.relu(x)
 
         xcat = F.softmax(self.lin3cat(x))
@@ -112,7 +114,7 @@ class Q_net_conv(nn.Module):
         nninit.kaiming_uniform(self.conv2.weight)
         self.conv2_drop = nn.Dropout2d(p=0.01)
 
-        self.lin1cat = nn.Linear(N, n_classes)
+        self.lin1cat = nn.Linear(N, c_dim)
         nninit.kaiming_uniform(self.lin1cat.weight)
         self.lin2cat = nn.Linear(N, n_classes)
         self.lin1gauss = nn.Linear(N, z_dim)
@@ -146,7 +148,7 @@ class Q_net_conv(nn.Module):
 class P_net_conv(nn.Module):
     def __init__(self):
         super(P_net_conv, self).__init__()
-        self.lin1 = nn.Linear(z_dim + n_classes, N)
+        self.lin1 = nn.Linear(z_dim + c_dim, N)
         nninit.kaiming_uniform(self.lin1.weight)
         self.conv1 = nn.Conv2d(100, 1, kernel_size=5)
         nninit.kaiming_uniform(self.conv1.weight)
@@ -171,7 +173,7 @@ class P_net_conv(nn.Module):
 class P_net(nn.Module):
     def __init__(self):
         super(P_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim + n_classes, N)
+        self.lin1 = nn.Linear(z_dim + c_dim, N)
         nninit.kaiming_uniform(self.lin1.weight)
         self.lin2 = nn.Linear(N, N)
         nninit.kaiming_uniform(self.lin2.weight)
@@ -192,7 +194,7 @@ class P_net(nn.Module):
 class D_net_cat(nn.Module):
     def __init__(self):
         super(D_net_cat, self).__init__()
-        self.lin1 = nn.Linear(10, N)
+        self.lin1 = nn.Linear(c_dim, N)
         self.lin2 = nn.Linear(N, N)
         self.lin3 = nn.Linear(N, 1)
 
@@ -221,6 +223,15 @@ class D_net_gauss(nn.Module):
         x = F.relu(x)
         x = self.lin3(x)
         return F.sigmoid(x)
+
+class C_net(nn.Module):
+    def __init__(self):
+        super(C_net, self).__init__()
+        self.lin1 = nn.Linear(c_dim, n_classes)
+    def forward(self, x):
+        x = self.lin1(x)
+        return F.softmax(x)
+
 
 
 def sample_categorical(batch_size, n_classes=10):
@@ -273,9 +284,9 @@ def pretest(model, epoch, valid_loader):
         100. * correct / len(valid_loader.dataset)))
 
 
-def train(P, Q, D_cat, D_gauss,
+def train(C, P, Q, D_cat, D_gauss, C_solver,
           P_decoder, Q_encoder, Q_semi_supervised, Q_generator,
-          D_cat_solver, D_gauss_solver,
+          D_cat_solver, D_gauss_solver, 
           train_labeled_loader, train_unlabeled_loader):
     
     TINY = 1e-15
@@ -304,7 +315,7 @@ def train(P, Q, D_cat, D_gauss,
             X = X * 0.3081 + 0.1307
             gaussian_length = train_batch_size * 28 * 28
             means = torch.from_numpy(np.array([0.] * gaussian_length).astype('float32'))
-            stds = torch.from_numpy(np.array([0.5] * gaussian_length).astype('float32'))
+            stds = torch.from_numpy(np.array([0.1] * gaussian_length).astype('float32'))
             gaussian_noise = torch.normal(means, stds)
             gaussian_noise.resize_as_(X)
 
@@ -346,7 +357,7 @@ def train(P, Q, D_cat, D_gauss,
             """ Regularization phase """
             # Discriminator
             Q.eval()
-            z_real_cat = sample_categorical(train_batch_size, n_classes=10)
+            z_real_cat = sample_categorical(train_batch_size, n_classes=c_dim)
             z_real_gauss = Variable(torch.randn(train_batch_size, z_dim))
             if cuda:
                 z_real_cat = z_real_cat.cuda()
@@ -402,11 +413,15 @@ def train(P, Q, D_cat, D_gauss,
 
             # Classification Loss
             if labeled:
+                C.zero_grad()
                 pred, _ = Q(X)
+                pred = C(pred)
                 class_loss = F.cross_entropy(pred, target)
                 class_loss.backward()
-                Q_semi_supervised.step()
+                C_solver.step()
+                #Q_semi_supervised.step()
 
+                C.zero_grad()
                 P.zero_grad()
                 Q.zero_grad()
                 D_cat.zero_grad()
@@ -502,6 +517,7 @@ def predict_cat(Q, data_loader):
             X, target = X.cuda(), target.cuda()
         # Reconstruction phase
         output = Q(X)[0]
+        output = C(output)
 
         test_loss += F.nll_loss(output, target).data[0]
 
@@ -518,27 +534,30 @@ def predict_cat(Q, data_loader):
 if cuda:
     if convolutional:
         Q = Q_net_conv().cuda()
-        P = P_net_conv().cuda()
+        P = P_net().cuda()
     else:
         Q = Q_net().cuda()
         P = P_net().cuda()
 
+
     D_cat = D_net_cat().cuda()
     D_gauss = D_net_gauss().cuda()
+    C = C_net().cuda()
 else:
     Q = Q_net()
     P = P_net()
     D_gauss = D_net_gauss()
     D_cat = D_net_cat()
 
+
 if convolutional:
     gen_lr = 0.01
-    semi_lr = 0.1
+    semi_lr = 0.
     reg_lr = 0.01
 else:
-    gen_lr = 0.01
-    semi_lr = 0.001
-    reg_lr = 0.001
+    gen_lr =  0.0001
+    semi_lr = 0.000
+    reg_lr =  0.00001
 
 
 if convolutional:
@@ -546,7 +565,7 @@ if convolutional:
     Q_encoder = optim.SGD(Q.parameters(), lr=gen_lr, momentum=0.9)
     
     Q_semi_supervised = optim.SGD(Q.parameters(), lr=semi_lr, momentum=0.9)
-    
+    C_solver = optim.SGD(C.parameters(), lr=semi_lr)
     
     Q_generator = optim.SGD(Q.parameters(), lr=reg_lr, momentum=0.1)
     D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=reg_lr, momentum=0.1)
@@ -557,6 +576,7 @@ else:
     Q_encoder = optim.Adam(Q.parameters(), lr=gen_lr)
     
     Q_semi_supervised = optim.Adam(Q.parameters(), lr=semi_lr)
+    C_solver = optim.Adam(C.parameters(), lr=semi_lr)
     
     Q_generator = optim.Adam(Q.parameters(), lr=reg_lr)
     D_gauss_solver = optim.Adam(D_gauss.parameters(), lr=reg_lr)
@@ -581,23 +601,24 @@ for epoch in range(epochs):
             Q_encoder = optim.Adam(Q.parameters(), lr=gen_lr/10.)
     
             Q_semi_supervised = optim.Adam(Q.parameters(), lr=semi_lr/10.)
+            C_solver = optim.Adam(C.parameters(), lr=semi_lr/10.)
     
             Q_generator = optim.Adam(Q.parameters(), lr=reg_lr/10.)
             D_gauss_solver = optim.Adam(D_gauss.parameters(), lr=reg_lr/10.)
             D_cat_solver = optim.Adam(D_cat.parameters(), lr=reg_lr/10.)
         else:
-            P_decoder = optim.SGD(P.parameters(), lr=gen_lr, momentum=0.9)
-            Q_encoder = optim.SGD(Q.parameters(), lr=gen_lr, momentum=0.9)
+            P_decoder = optim.SGD(P.parameters(), lr=gen_lr/10., momentum=0.9)
+            Q_encoder = optim.SGD(Q.parameters(), lr=gen_lr/10., momentum=0.9)
     
-            Q_semi_supervised = optim.SGD(Q.parameters(), lr=semi_lr, momentum=0.5)
-    
+            Q_semi_supervised = optim.SGD(Q.parameters(), lr=semi_lr/10., momentum=0.1)
+            C_solver = optim.Adam(C.parameters(), lr=semi_lr/10.)
     
             Q_generator = optim.SGD(Q.parameters(), lr=reg_lr, momentum=0.1)
             D_gauss_solver = optim.SGD(D_gauss.parameters(), lr=reg_lr, momentum=0.1)
             D_cat_solver = optim.SGD(D_cat.parameters(), lr=reg_lr, momentum=0.1)
 
-    D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss = train(P, Q, D_cat,
-                                                                     D_gauss, P_decoder,
+    D_loss_cat, D_loss_gauss, G_loss, recon_loss, class_loss = train(C, P, Q, D_cat,
+                                                                     D_gauss, C_solver, P_decoder,
                                                                      Q_encoder, Q_semi_supervised,
                                                                      Q_generator,
                                                                      D_cat_solver, D_gauss_solver,
