@@ -1,11 +1,15 @@
 from __future__ import print_function
-from utils import *
+import scipy
 import pickle
 import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import numpy as np
+from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage import map_coordinates
+from numpy.random import uniform
 from torch.autograd import Variable
 
 
@@ -46,11 +50,11 @@ class Net(nn.Module):
         self.conv1 = nn.Conv2d(1, 100, kernel_size=5)
         self.conv2 = nn.Conv2d(100, 20, kernel_size=5)
         self.conv2_drop = nn.Dropout2d(p=args.dropout)
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
+        self.fc1 = nn.Linear(320, 100)
+        self.fc2 = nn.Linear(100, 10)
 
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
+        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv1(x)), 2))
         x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
         x = x.view(-1, 320)
         x = F.relu(self.fc1(x))
@@ -62,6 +66,7 @@ class Net(nn.Module):
 def train(model, optimizer, epoch, train_loader):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
+
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
@@ -83,6 +88,7 @@ def test(model, epoch, valid_loader):
     for data, target in valid_loader:
         if args.cuda:
             data, target = data.cuda(), target.cuda()
+
         data, target = Variable(data, volatile=True), Variable(target)
         output = model(data)
         test_loss += F.nll_loss(output, target).data[0]
@@ -93,6 +99,71 @@ def test(model, epoch, valid_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
         test_loss, correct, len(valid_loader.dataset),
         100. * correct / len(valid_loader.dataset)))
+    return test_loss
+
+
+def save_model(model):
+    print('Best model so far, saving it...')
+    params_filename = 'best_model.pkl'
+    torch.save(model.state_dict(), params_filename)
+
+
+def save_curves(curves):
+    curves_filename = 'cnn_curves.pkl'
+    pickle.dump(curves, open(curves_filename, 'w'))
+
+
+def augment_dataset(trainset_labeled, b=50, k=2, sigma=4, alpha=34):
+    # Modifies trainset_labeled inline
+    X = trainset_labeled.train_data
+    Y = trainset_labeled.train_labels
+
+    batches = [(X[i:i + b], Y[i:i + b]) for i in xrange(0, len(X), b)]
+
+    augmented_data, augmented_labels = [], []
+    for i in range(k):
+        for img_batch, labels in batches:
+            augmented_data.extend(elastic_transform(img_batch, sigma=4, alpha=34))
+
+            augmented_labels.extend(labels)
+
+    augmented_data = np.array(augmented_data)
+    augmented_labels = np.array(augmented_labels)
+
+    data = np.concatenate((trainset_labeled.train_data.numpy(), augmented_data))
+    labels = np.concatenate((trainset_labeled.train_labels.numpy(), augmented_labels))
+
+    trainset_labeled.train_data = torch.from_numpy(data)
+    trainset_labeled.train_labels = torch.from_numpy(labels)
+
+    trainset_labeled.k = data.shape[0]
+    return trainset_labeled
+
+
+def elastic_transform(img_batch, sigma=4, alpha=34):
+    img_batch = img_batch.numpy()
+    x_dim = img_batch.shape[1]
+    y_dim = img_batch.shape[2]
+    pos = np.array([[i, j] for i in range(x_dim) for j in range(y_dim)])
+    pos = pos.transpose(1, 0).reshape(2, x_dim, y_dim)
+    uniform_random_x = uniform(-1, 1, size=img_batch.shape[1:])
+    uniform_random_y = uniform(-1, 1, size=img_batch.shape[1:])
+
+    elastic_x = gaussian_filter(alpha * uniform_random_x,
+                                sigma=sigma, mode='constant')
+    elastic_y = gaussian_filter(alpha * uniform_random_y,
+                                sigma=sigma, mode='constant')
+    elastic_distortion_x = pos[0] + elastic_x
+    elastic_distortion_y = pos[1] + elastic_y
+    elastic = np.array([elastic_distortion_x, elastic_distortion_y])
+
+    transformed = []
+    batch_size = img_batch.shape[0]
+
+    for i in range(batch_size):
+        transformed.append(map_coordinates(img_batch[i], elastic, order=1,
+                                           prefilter=False, mode='reflect'))
+    return transformed
 
 
 def main():
@@ -103,25 +174,49 @@ def main():
 
     if args.elastic_augment:
         print('Augmenting dataset!')
-        augment_dataset(trainset_labeled, b=100, k=8)
+        augment_dataset(trainset_labeled, b=50, k=17)
+        # augment_dataset(trainset_labeled, b=50, k=2, sigma=8, alpha=34)
 
         print('Augmented dataset to size: {}'.format(trainset_labeled.k))
-        filename = 'train_augmented.p'
-        print('Saving augmented dataset to {}{}'.format(data_path, filename))
-        output = open(data_path + filename, 'wb')
-        pickle.dump(trainset_labeled, output)
+        #filename = 'train_augmented.p'
+        #print('Saving augmented dataset to {}{}'.format(data_path, filename))
+        #output = open(data_path + filename, 'wb')
+        #pickle.dump(trainset_labeled, output)
 
     train_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
+    train_for_loss = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
     valid_loader = torch.utils.data.DataLoader(validset, batch_size=64, shuffle=True)
 
     model = Net()
     if args.cuda:
         model.cuda()
 
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    curves = {}
+    curves['train'] = []
+    curves['valid'] = []
+
+    best = float('inf')
+
+    lr = args.lr
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=args.momentum)
     for epoch in range(1, args.epochs + 1):
+
+        if epoch % 30 == 0:
+            lr /= 10
+            optimizer = optim.SGD(model.parameters(), lr=lr, momentum=args.momentum)
+
         train(model, optimizer, epoch, train_loader)
-        test(model, epoch, valid_loader)
+        loss_train = test(model, epoch, train_for_loss) 
+        loss_valid = test(model, epoch, valid_loader)
+
+        if loss_valid < best:
+            save_model(model)
+            best = loss_valid
+
+        curves['train'].append(loss_train)
+        curves['valid'].append(loss_valid)
+
+    save_curves(curves)
 
 
 if __name__ == '__main__':
