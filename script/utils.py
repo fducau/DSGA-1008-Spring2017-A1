@@ -35,7 +35,7 @@ def augment_dataset(trainset_labeled, b=100, k=2):
 
 
 
-def elastic_transform(img_batch, sigma=4, alpha=34):
+def elastic_transform(img_batch, sigma=5, alpha=34):
     img_batch = img_batch.numpy()
     x_dim = img_batch.shape[1]
     y_dim = img_batch.shape[2]
@@ -56,6 +56,6 @@ def elastic_transform(img_batch, sigma=4, alpha=34):
     batch_size = img_batch.shape[0]
 
     for i in range(batch_size):
-        transformed.append(map_coordinates(img_batch[i], elastic, order=1,
+        transformed.append(map_coordinates(img_batch[i], elastic, order=0,
                                            prefilter=False, mode='reflect'))
     return transformed

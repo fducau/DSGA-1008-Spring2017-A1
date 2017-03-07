@@ -23,10 +23,10 @@ def get_X_batch(data_loader, convolutional, size=None):
 
     return X
 
-def create_reconstruction(Q, P, data_loader):
+def create_reconstruction(Q, P, data_loader, convolutional):
     Q.eval()
     P.eval()
-    X = get_X_batch(data_loader, size=1)
+    X = get_X_batch(data_loader, convolutional, size=1)
 
     z_c, z_g = Q(X)
     z = torch.cat((z_c, z_g), 1)
@@ -46,14 +46,14 @@ def grid_plot(Q, P, data_loader, convolutional):
     X = get_X_batch(data_loader, convolutional, size=10)
     z_c, z_g = Q(X)
 
-    z_cat = np.arange(0, 10)
+    z_cat = np.arange(0, n_classes)
     z_cat = np.eye(n_classes)[z_cat].astype('float32')
     z_cat = torch.from_numpy(z_cat)
     z_cat = Variable(z_cat)
     if cuda:
         z_cat = z_cat.cuda()
 
-    nx, ny = 3, 10
+    nx, ny = 3, n_classes
     plt.subplot()
     gs = gridspec.GridSpec(nx, ny, hspace=0.05, wspace=0.05)
 
@@ -61,7 +61,7 @@ def grid_plot(Q, P, data_loader, convolutional):
         z_gauss = z_g[i/ny].resize(1, z_dim)
         z_gauss0 = z_g[i/ny].resize(1, z_dim)
 
-        for _ in range(9):
+        for _ in range(n_classes - 1):
             z_gauss = torch.cat((z_gauss, z_gauss0), 0)
 
         z = torch.cat((z_cat, z_gauss ), 1)
