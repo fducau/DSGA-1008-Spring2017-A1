@@ -69,7 +69,7 @@ def grid_plot(Q, P, data_loader, convolutional):
 
         ax = plt.subplot(g)
         img = np.array(x[i%ny].data.tolist()).reshape(28,28)
-        ax.imshow(img)
+        ax.imshow(img, )
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_aspect('auto')
