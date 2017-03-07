@@ -2,6 +2,13 @@ import argparse
 import pandas as pd
 from mnist_pytorch import *
 
+def predict_labels(Q, X):
+    Q.eval()
+    X = X * 0.3081 + 0.1307
+    output = Q(X)[0]
+    pl = output.data.max(1)[1].cpu().numpy().reshape(-1)
+    return pl
+
 def main():
     print('Loading model')
     model = Net()
@@ -21,8 +28,9 @@ def main():
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
-        output = model(data)
-        temp = output.data.max(1)[1].cpu().numpy().reshape(-1)
+        # output = model(data)
+        # temp = output.data.max(1)[1].cpu().numpy().reshape(-1)
+        temp = predict_labels(model, data)
         label_predict = np.concatenate((label_predict, temp))
 
     prediction_df = pd.DataFrame(label_predict, columns=['label'], dtype=int)
