@@ -43,6 +43,7 @@ if args.cuda:
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
+params_filename = 'best_model.pkl'
 
 class Net(nn.Module):
     def __init__(self):
@@ -50,11 +51,12 @@ class Net(nn.Module):
         self.conv1 = nn.Conv2d(1, 100, kernel_size=5)
         self.conv2 = nn.Conv2d(100, 20, kernel_size=5)
         self.conv2_drop = nn.Dropout2d(p=args.dropout)
+
         self.fc1 = nn.Linear(320, 100)
         self.fc2 = nn.Linear(100, 10)
 
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv1(x)), 2))
+        x = F.relu(F.max_pool2d(self.conv1(x), 2))
         x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
         x = x.view(-1, 320)
         x = F.relu(self.fc1(x))
@@ -96,21 +98,71 @@ def test(model, epoch, valid_loader):
         correct += pred.eq(target.data).cpu().sum()
 
     test_loss /= len(valid_loader)  # loss function already averages over batch size
+
+    accuracy = 100. * correct / len(valid_loader.dataset)
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
         test_loss, correct, len(valid_loader.dataset),
-        100. * correct / len(valid_loader.dataset)))
-    return test_loss
+        accuracy))
+    return accuracy
 
 
 def save_model(model):
     print('Best model so far, saving it...')
-    params_filename = 'best_model.pkl'
     torch.save(model.state_dict(), params_filename)
 
 
 def save_curves(curves):
     curves_filename = 'cnn_curves.pkl'
     pickle.dump(curves, open(curves_filename, 'w'))
+
+
+def concat_sets(original, new_data, new_labels):
+    new_data = np.array(new_data)
+    new_labels = np.array(new_labels)
+    data = np.concatenate((original.train_data.numpy(), new_data))
+    labels = np.concatenate((original.train_labels.numpy(), new_labels))
+
+    data = torch.from_numpy(data)
+    labels = torch.from_numpy(labels)
+    return data, labels
+
+
+def augment_unlabeled(trainset_labeled, trainset_unlabeled, unlabeled_loader, i_augment, k=2):
+
+    model = Net()
+    if args.cuda:
+        model.cuda()
+    model.load_state_dict(torch.load(params_filename))
+
+    augmented_data, augmented_labels = None, np.array([])
+    model.eval()
+    for i, (data, target) in enumerate(unlabeled_loader):
+        if args.cuda:
+            data, target = data.cuda(), target.cuda()
+
+        # if augmented_data is not None:
+        #     augmented_data = np.concatenate((augmented_data, data.cpu().numpy()))
+        # else:
+        #     augmented_data = data.cpu().numpy()
+
+        data, target = Variable(data, volatile=True), Variable(target)
+        output = model(data)
+        temp = output.data.max(1)[1].cpu().numpy().reshape(-1)
+        augmented_labels = np.concatenate((augmented_labels, temp))
+        if i >= k:
+            break
+
+    #augmented_data = augmented_data.reshape(augmented_data.shape[0], 28, 28)
+    
+    length = len(data) * (i+1)
+    init = i_augment * length
+    end = init + length
+    augmented_data = trainset_unlabeled.train_data[init:end].numpy()
+    augmented_labels = augmented_labels.astype(np.int64)
+    data, labels = concat_sets(trainset_labeled, augmented_data, augmented_labels)
+    trainset_labeled.train_data = data
+    trainset_labeled.train_labels = labels
+    trainset_labeled.k = len(data)
 
 
 def augment_dataset(trainset_labeled, b=50, k=2, sigma=4, alpha=34):
@@ -124,20 +176,12 @@ def augment_dataset(trainset_labeled, b=50, k=2, sigma=4, alpha=34):
     for i in range(k):
         for img_batch, labels in batches:
             augmented_data.extend(elastic_transform(img_batch, sigma=4, alpha=34))
-
             augmented_labels.extend(labels)
 
-    augmented_data = np.array(augmented_data)
-    augmented_labels = np.array(augmented_labels)
-
-    data = np.concatenate((trainset_labeled.train_data.numpy(), augmented_data))
-    labels = np.concatenate((trainset_labeled.train_labels.numpy(), augmented_labels))
-
-    trainset_labeled.train_data = torch.from_numpy(data)
-    trainset_labeled.train_labels = torch.from_numpy(labels)
-
-    trainset_labeled.k = data.shape[0]
-    return trainset_labeled
+    data, labels = concat_sets(trainset_labeled, augmented_data, augmented_labels)
+    trainset_labeled.train_data = data
+    trainset_labeled.train_labels = labels
+    trainset_labeled.k = len(data)
 
 
 def elastic_transform(img_batch, sigma=4, alpha=34):
@@ -171,21 +215,27 @@ def main():
     data_path = '../data/'
     trainset_labeled = pickle.load(open(data_path + "train_labeled.p", "rb"))
     validset = pickle.load(open(data_path + "validation.p", "rb"))
+    trainset_unlabeled = pickle.load(open(data_path + "train_unlabeled.p", "rb"))
+    trainset_unlabeled.train_labels = torch.from_numpy(np.array([-1] * 47000))
 
     if args.elastic_augment:
         print('Augmenting dataset!')
         augment_dataset(trainset_labeled, b=50, k=17)
-        # augment_dataset(trainset_labeled, b=50, k=2, sigma=8, alpha=34)
 
         print('Augmented dataset to size: {}'.format(trainset_labeled.k))
-        #filename = 'train_augmented.p'
-        #print('Saving augmented dataset to {}{}'.format(data_path, filename))
-        #output = open(data_path + filename, 'wb')
-        #pickle.dump(trainset_labeled, output)
+        # filename = 'train_augmented.p'
+        # print('Saving augmented dataset to {}{}'.format(data_path, filename))
+        # output = open(data_path + filename, 'wb')
+        # pickle.dump(trainset_labeled, output)
 
-    train_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
-    train_for_loss = torch.utils.data.DataLoader(trainset_labeled, batch_size=64, shuffle=True, **kwargs)
-    valid_loader = torch.utils.data.DataLoader(validset, batch_size=64, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64,
+                                               shuffle=True, **kwargs)
+    train_for_loss = torch.utils.data.DataLoader(trainset_labeled, batch_size=64,
+                                                 shuffle=True, **kwargs)
+    valid_loader = torch.utils.data.DataLoader(validset, batch_size=64,
+                                               shuffle=True)
+    unlabeled_loader = torch.utils.data.DataLoader(trainset_unlabeled, batch_size=100,
+                                                   shuffle=False, **kwargs)
 
     model = Net()
     if args.cuda:
@@ -195,26 +245,42 @@ def main():
     curves['train'] = []
     curves['valid'] = []
 
-    best = float('inf')
-
+    best = float('-inf')
+    not_learning = 0
     lr = args.lr
     optimizer = optim.SGD(model.parameters(), lr=lr, momentum=args.momentum)
+
+    i_augment = 0
     for epoch in range(1, args.epochs + 1):
 
-        if epoch % 30 == 0:
+        if not_learning > 5:
             lr /= 10
+            not_learning = 0
+            print('Changing learning rate to {:.8f}'.format(lr))
             optimizer = optim.SGD(model.parameters(), lr=lr, momentum=args.momentum)
 
+        # if epoch >= 40 and epoch % 10 == 0:
+        #      print('Adding unlabeled data')
+        #      augment_unlabeled(trainset_labeled, trainset_unlabeled, unlabeled_loader, i_augment, k=3)
+        #      i_augment += 1
+        #      train_loader = torch.utils.data.DataLoader(trainset_labeled, batch_size=64,
+        #                                                 shuffle=True, **kwargs)
+        #      lr = args.lr
+        #      optimizer = optim.SGD(model.parameters(), lr=lr, momentum=args.momentum)
+
         train(model, optimizer, epoch, train_loader)
-        loss_train = test(model, epoch, train_for_loss) 
-        loss_valid = test(model, epoch, valid_loader)
+        accuracy_train = test(model, epoch, train_for_loss)
+        accuracy_valid = test(model, epoch, valid_loader)
 
-        if loss_valid < best:
+        if accuracy_valid > best:
             save_model(model)
-            best = loss_valid
+            best = accuracy_valid
+            not_learning = 0
+        else:
+            not_learning += 1
 
-        curves['train'].append(loss_train)
-        curves['valid'].append(loss_valid)
+        curves['train'].append(accuracy_train)
+        curves['valid'].append(accuracy_valid)
 
     save_curves(curves)
 
